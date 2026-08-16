@@ -1,6 +1,6 @@
 ---
 description: Senior QA engineer responsible for testing and final validation
-mode: subagent
+mode: all
 
 permission:
   task:

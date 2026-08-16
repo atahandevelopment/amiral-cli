@@ -1,6 +1,6 @@
 ---
 description: Senior frontend engineer responsible for implementing frontend changes
-mode: subagent
+mode: all
 ---
 
 # Frontend Agent

@@ -1,0 +1,38 @@
+{
+  "tasks": [
+    {
+      "id": "DB-001",
+      "title": "Create schema",
+      "agent": "database",
+      "description": "Create required persistence structures.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Migration succeeds"
+      ]
+    },
+    {
+      "id": "API-001",
+      "title": "Implement API",
+      "agent": "backend",
+      "description": "Implement the API using the schema.",
+      "dependencies": [
+        "DB-001"
+      ],
+      "acceptance_criteria": [
+        "API tests pass"
+      ]
+    },
+    {
+      "id": "QA-001",
+      "title": "Validate feature",
+      "agent": "qa",
+      "description": "Validate the completed feature.",
+      "dependencies": [
+        "API-001"
+      ],
+      "acceptance_criteria": [
+        "Build and tests pass"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 ---
 description: Senior code reviewer responsible for correctness, architecture, security and maintainability
-mode: subagent
+mode: all
 
 permission:
   edit: deny

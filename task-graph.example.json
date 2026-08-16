@@ -1,0 +1,36 @@
+{
+  "tasks": [
+    {
+      "id": "DB-001",
+      "title": "Create authentication schema",
+      "agent": "database",
+      "description": "Create the database entities and relationships required for authentication.",
+      "dependencies": [],
+      "acceptance_criteria": ["Required entities exist", "Migration succeeds"]
+    },
+    {
+      "id": "API-001",
+      "title": "Implement authentication API",
+      "agent": "backend",
+      "description": "Implement login and registration endpoints.",
+      "dependencies": ["DB-001"],
+      "acceptance_criteria": ["Valid credentials return a successful response", "Invalid credentials are rejected"]
+    },
+    {
+      "id": "REVIEW-001",
+      "title": "Review authentication implementation",
+      "agent": "reviewer",
+      "description": "Review the authentication implementation.",
+      "dependencies": ["API-001"],
+      "acceptance_criteria": ["No unresolved CRITICAL or HIGH findings remain"]
+    },
+    {
+      "id": "QA-001",
+      "title": "Validate authentication feature",
+      "agent": "qa",
+      "description": "Validate the completed authentication feature.",
+      "dependencies": ["REVIEW-001"],
+      "acceptance_criteria": ["Relevant tests pass", "Build succeeds"]
+    }
+  ]
+}

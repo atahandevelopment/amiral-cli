@@ -1,6 +1,16 @@
 team:
   name: software-development-team
 
+execution:
+  max_parallel_agents: 3
+  lease_minutes: 30
+  max_attempts: 3
+  requests_directory: requests
+
+opencode:
+  binary: opencode
+  auto_approve: false
+
 agents:
 
   lead:

@@ -1,0 +1,39 @@
+{
+  "scripts": {
+    "validate:team": "tsx scripts/validate-team.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "cross-spawn": "^7.0.6",
+    "tsx": "^4.23.12",
+    "yaml": "^2.9.0"
+  },
+  "name": "opencode-ai-team",
+  "version": "1.0.0",
+  "description": "A role-based, dependency-aware multi-agent software development team for [OpenCode](https://opencode.ai/).",
+  "main": "index.js",
+  "directories": {
+    "example": "examples"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "fast-deep-equal": "^3.1.3",
+    "fast-uri": "^3.1.5",
+    "json-schema-traverse": "^1.0.0",
+    "require-from-string": "^2.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atahandevelopment/opencode-ai-team.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/atahandevelopment/opencode-ai-team/issues"
+  },
+  "homepage": "https://github.com/atahandevelopment/opencode-ai-team#readme"
+}

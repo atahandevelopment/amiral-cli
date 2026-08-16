@@ -1,6 +1,6 @@
 ---
 description: Senior backend engineer
-mode: subagent
+mode: all
 ---
 
 # Backend Agent

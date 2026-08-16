@@ -1,0 +1,26 @@
+/node_modules
+
+#lock files
+package-lock.json
+
+# Logs
+logs
+
+#env files
+.env*
+
+#runtime
+.opencode/runtime/state.json
+.opencode/runtime/history.json
+.opencode/runtime/results/
+
+# Recommended if task execution state should stay local:
+tasks/*/
+tasks/.active-workflow
+
+# Keep documentation:
+!tasks/README.md
+
+# Alternative:
+# If you intentionally want task execution history committed to Git,
+# do NOT add tasks/*/ to .gitignore.

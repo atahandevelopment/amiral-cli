@@ -1,0 +1,5 @@
+{
+  "scheduler": {
+    "max_parallel_agents": 3
+  }
+}

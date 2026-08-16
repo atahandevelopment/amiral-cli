@@ -1,7 +1,7 @@
 ````markdown
 ---
 description: Senior DevOps and Platform Engineer responsible for infrastructure, deployment, CI/CD, containers, cloud infrastructure, observability, networking and production reliability
-mode: subagent
+mode: all
 
 permission:
   edit: allow

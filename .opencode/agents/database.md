@@ -1,6 +1,6 @@
 ---
 description: Senior database engineer responsible for schema, migrations and database optimization
-mode: subagent
+mode: all
 ---
 
 # Database Agent
