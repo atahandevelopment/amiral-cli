@@ -1,0 +1,86 @@
+team:
+  name: software-development-team
+
+agents:
+
+  lead:
+    role: orchestrator
+    skills:
+      - general/git
+      - general/clean-code
+
+  planner:
+    role: planner
+    skills:
+      - general/architecture
+
+  frontend:
+    role: developer
+    skills:
+      - frontend/nextjs
+      - frontend/react
+      - frontend/typescript
+      - frontend/tailwind
+      - frontend/storybook
+      - frontend/tanstack-query
+      - frontend/axios
+      - frontend/astro
+      - frontend/angular
+      - frontend/vue
+      - frontend/next-auth
+      - frontend/next-i18next
+      - frontend/next-seo
+      - frontend/next-sitemap
+      - frontend/next-pwa
+      - frontend/schadcn
+      - frontend/next-themes
+      - frontend/material-ui
+      - frontend/ant-design
+
+  backend:
+    role: developer
+    skills:
+      - backend/dotnet
+      - backend/ef-core
+      - backend/rest-api
+      - backend/grpc
+      - backend/graphql
+      - backend/redis
+      - backend/kafka
+      - backend/rabbitmq
+      - backend/docker
+      - backend/kubernetes
+      - backend/aws
+      - backend/azure
+      - backend/elasticsearch
+
+  database:
+    role: specialist
+    skills:
+      - database/postgresql
+      - database/optimization
+
+  reviewer:
+    role: reviewer
+    skills:
+      - general/clean-code
+      - general/security
+
+  qa:
+    role: tester
+    skills:
+      - testing/unit
+      - testing/integration
+      - testing/e2e
+
+
+workflows:
+
+  feature:
+    file: .opencode/workflows/feature.md
+
+  bugfix:
+    file: .opencode/workflows/bugfix.md
+
+  refactor:
+    file: .opencode/workflows/refactor.md
