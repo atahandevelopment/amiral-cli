@@ -9,10 +9,14 @@ git:
   keep_branches: true
 
 execution:
-  max_parallel_agents: 3
+  max_parallel_agents: 1
   lease_minutes: 30
   max_attempts: 3
   requests_directory: requests
+
+providers:
+  opencode:
+    max_concurrency: 1
 
 opencode:
   binary: opencode
