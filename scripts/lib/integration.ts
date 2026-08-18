@@ -9,10 +9,7 @@ type GitResult = {
   stderr: string;
 };
 
-async function runGit(
-  args: string[],
-  cwd = ROOT,
-): Promise<GitResult> {
+async function runGit(args: string[], cwd = ROOT): Promise<GitResult> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn("git", args, {
       cwd,
@@ -60,15 +57,9 @@ export async function createIntegrationWorkspace(
 ): Promise<IntegrationWorkspace> {
   const workflowSegment = sanitizeSegment(workflowId);
 
-  const branchName =
-    `amiral/${workflowSegment}/integration`;
+  const branchName = `amiral/${workflowSegment}/integration`;
 
-  const worktreePath = resolve(
-    ROOT,
-    ".amiral",
-    "integration",
-    workflowSegment,
-  );
+  const worktreePath = resolve(ROOT, ".amiral", "integration", workflowSegment);
 
   const branchCheck = await runGit([
     "show-ref",
@@ -77,16 +68,10 @@ export async function createIntegrationWorkspace(
     `refs/heads/${branchName}`,
   ]);
 
-  const existingWorktree = await runGit([
-    "worktree",
-    "list",
-    "--porcelain",
-  ]);
+  const existingWorktree = await runGit(["worktree", "list", "--porcelain"]);
 
   if (
-    existingWorktree.stdout.includes(
-      worktreePath.replace(/\\/g, "/"),
-    ) ||
+    existingWorktree.stdout.includes(worktreePath.replace(/\\/g, "/")) ||
     existingWorktree.stdout.includes(worktreePath)
   ) {
     return {
@@ -97,28 +82,13 @@ export async function createIntegrationWorkspace(
 
   const args =
     branchCheck.code === 0
-      ? [
-          "worktree",
-          "add",
-          worktreePath,
-          branchName,
-        ]
-      : [
-          "worktree",
-          "add",
-          "-b",
-          branchName,
-          worktreePath,
-          "HEAD",
-        ];
+      ? ["worktree", "add", worktreePath, branchName]
+      : ["worktree", "add", "-b", branchName, worktreePath, "HEAD"];
 
   const result = await runGit(args);
 
   if (result.code !== 0) {
-    throw new Error(
-      result.stderr ||
-        "Could not create integration worktree.",
-    );
+    throw new Error(result.stderr || "Could not create integration worktree.");
   }
 
   return {
@@ -132,12 +102,7 @@ export async function mergeTaskBranch(
   taskBranch: string,
 ): Promise<void> {
   const result = await runGit(
-    [
-      "merge",
-      "--no-ff",
-      "--no-edit",
-      taskBranch,
-    ],
+    ["merge", "--no-ff", "--no-edit", taskBranch],
     integrationWorktree,
   );
 
@@ -145,38 +110,36 @@ export async function mergeTaskBranch(
     return;
   }
 
-  await runGit(
-    ["merge", "--abort"],
-    integrationWorktree,
-  );
+  await runGit(["merge", "--abort"], integrationWorktree);
 
   throw new Error(
-    result.stderr ||
-      `Merge conflict while merging "${taskBranch}".`,
+    result.stderr || `Merge conflict while merging "${taskBranch}".`,
   );
 }
 
 export async function getIntegrationStatus(
   integrationWorktree: string,
 ): Promise<string> {
-  const result = await runGit(
-    ["status", "--short"],
-    integrationWorktree,
-  );
+  const result = await runGit(["status", "--short"], integrationWorktree);
 
   if (result.code !== 0) {
-    throw new Error(
-      result.stderr ||
-        "Could not inspect integration worktree.",
-    );
+    throw new Error(result.stderr || "Could not inspect integration worktree.");
   }
 
   return result.stdout;
 }
 
-export function getTaskBranchName(
-  workflowId: string,
-  taskId: string,
-): string {
+export function getTaskBranchName(workflowId: string, taskId: string): string {
   return `amiral/${sanitizeSegment(workflowId)}/${sanitizeSegment(taskId)}`;
+}
+
+export async function branchExists(branchName: string): Promise<boolean> {
+  const result = await runGit([
+    "show-ref",
+    "--verify",
+    "--quiet",
+    `refs/heads/${branchName}`,
+  ]);
+
+  return result.code === 0;
 }
