@@ -1,6 +1,13 @@
 team:
   name: software-development-team
 
+git:
+  worktree_root: .amiral/worktrees
+  cleanup_completed: true
+  keep_failed: true
+  keep_blocked: true
+  keep_branches: true
+
 execution:
   max_parallel_agents: 3
   lease_minutes: 30

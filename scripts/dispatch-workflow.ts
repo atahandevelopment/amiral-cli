@@ -7,6 +7,8 @@ import type { ExecutionRequest } from "./lib/execution-request.js";
 import type { WorkflowState } from "./lib/types.js";
 import { executeWithOpenCode } from "./lib/opencode-adapter.js";
 import { loadTeamConfig, resolveExecutionConfig } from "./lib/team-config.js";
+import { finalizeTaskWorktree } from "./lib/task-finalizer.js";
+
 import {
   appendHistory,
   deriveWorkflowStatus,
@@ -28,6 +30,7 @@ type DispatchResult = {
   summary: string;
   branch?: string;
   worktree?: string;
+  commit?: string;
 };
 
 type CliOptions = {
@@ -192,6 +195,19 @@ async function executeRequest(
       cwd: worktree.worktreePath,
     });
 
+    let commit: string | undefined;
+
+    if (result.status === "completed") {
+      const finalized = await finalizeTaskWorktree(
+        worktree.worktreePath,
+        request.workflow_id,
+        request.task_id,
+        request.title,
+      );
+
+      commit = finalized.commit;
+    }
+
     const diff = await getWorktreeDiff(worktree.worktreePath);
 
     await applyResult(request, result);
@@ -205,6 +221,7 @@ async function executeRequest(
         : result.summary,
       branch: worktree.branchName,
       worktree: worktree.worktreePath,
+      commit,
     };
   } catch (error) {
     return {
@@ -276,6 +293,10 @@ function printSummary(results: DispatchResult[]): void {
     }
     if (result.status === "error") {
       console.log(`    error: ${result.summary}`);
+    }
+
+    if (result.commit) {
+      console.log(`    commit: ${result.commit}`);
     }
   }
 }
