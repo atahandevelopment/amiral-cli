@@ -132,7 +132,9 @@ async function setTaskStatus(
   const timestamp = new Date().toISOString();
 
   if (nextStatus === "in_progress") {
-    const ready = findReadyTasks(state.tasks).some((item) => item.id === task.id);
+    const ready = findReadyTasks(state.tasks).some(
+      (item) => item.id === task.id,
+    );
     if (!ready) fail(`Task "${task.id}" is not READY.`);
 
     task.started_at ??= timestamp;
@@ -161,6 +163,11 @@ async function setTaskStatus(
     task.started_at = null;
     task.completed_at = null;
     task.last_error = null;
+    task.lease_id = null;
+    task.lease_expires_at = null;
+
+    // Manual reset starts a fresh execution budget.
+    task.attempts = 0;
   }
 
   task.status = nextStatus;
@@ -219,7 +226,8 @@ async function useWorkflow(workflowId: string): Promise<void> {
 }
 
 function usage(): never {
-  console.error(`
+  console.error(
+    `
 Usage:
   npx tsx scripts/workflow-state.ts create <feature|bugfix|refactor> <task-graph.json> [name]
   npx tsx scripts/workflow-state.ts list
@@ -231,7 +239,8 @@ Usage:
   npx tsx scripts/workflow-state.ts fail <TASK-ID> "<reason>"
   npx tsx scripts/workflow-state.ts block <TASK-ID> "<reason>"
   npx tsx scripts/workflow-state.ts reset <TASK-ID> [workflow-id]
-`.trim());
+`.trim(),
+  );
 
   process.exit(2);
 }
@@ -243,7 +252,11 @@ async function main(): Promise<void> {
     switch (command) {
       case "create": {
         const [type, graph, name] = args;
-        if (!type || !graph || !["feature", "bugfix", "refactor"].includes(type)) {
+        if (
+          !type ||
+          !graph ||
+          !["feature", "bugfix", "refactor"].includes(type)
+        ) {
           usage();
         }
         await createWorkflow(type as WorkflowType, graph, name);
