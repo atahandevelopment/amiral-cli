@@ -24,3 +24,7 @@ tasks/.active-workflow
 # Alternative:
 # If you intentionally want task execution history committed to Git,
 # do NOT add tasks/*/ to .gitignore.
+
+
+# Amiral runtime worktrees
+.amiral/worktrees/

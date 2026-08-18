@@ -33,6 +33,10 @@ type OpenCodeOptions = {
   model?: string;
 };
 
+export type OpenCodeExecutionContext = {
+  cwd?: string;
+};
+
 function resolveOpenCodeOptions(
   config: TeamConfig,
   agent: ExecutionRequest["agent"],
@@ -164,9 +168,12 @@ Do not finish with only a conversational response.
 `.trim();
 }
 
-async function writeTaskPromptFile(request: ExecutionRequest): Promise<string> {
+async function writeTaskPromptFile(
+  request: ExecutionRequest,
+  cwd: string,
+): Promise<string> {
   const promptPath = resolve(
-    process.cwd(),
+    cwd,
     "tasks",
     request.workflow_id,
     "requests",
@@ -182,10 +189,14 @@ async function writeTaskPromptFile(request: ExecutionRequest): Promise<string> {
   return promptPath;
 }
 
-async function runProcess(command: string, args: string[]): Promise<number> {
+async function runProcess(
+  command: string,
+  args: string[],
+  cwd: string,
+): Promise<number> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
-      cwd: process.cwd(),
+      cwd: cwd,
       stdio: "inherit",
     });
 
@@ -200,12 +211,15 @@ async function runProcess(command: string, args: string[]): Promise<number> {
 export async function executeWithOpenCode(
   request: ExecutionRequest,
   teamConfig: TeamConfig,
+  context: OpenCodeExecutionContext = {},
 ): Promise<AgentResult> {
   await validateContract("execution-request", request);
 
+  const cwd = context.cwd ?? process.cwd();
+
   const options = resolveOpenCodeOptions(teamConfig, request.agent);
 
-  const promptFile = await writeTaskPromptFile(request);
+  const promptFile = await writeTaskPromptFile(request, cwd);
 
   const args = [
     "run",
@@ -215,7 +229,7 @@ export async function executeWithOpenCode(
     "--agent",
     request.agent,
     "--dir",
-    process.cwd(),
+    cwd,
     "--format",
     "json",
     "--file",
@@ -230,7 +244,7 @@ export async function executeWithOpenCode(
     args.push("--auto");
   }
 
-  const exitCode = await runProcess(options.binary, args);
+  const exitCode = await runProcess(options.binary, args, cwd);
 
   if (exitCode !== 0) {
     throw new Error(
@@ -238,7 +252,7 @@ export async function executeWithOpenCode(
     );
   }
 
-  const resultPath = resolve(process.cwd(), request.context.result_path);
+  const resultPath = resolve(cwd, request.context.result_path);
 
   let result: AgentResult;
 
