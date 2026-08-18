@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 
 import type { ExecutionRequest } from "./execution-request.js";
 import type { TeamConfig } from "./team-config.js";
-import { loadJson } from "./workflow-store.js";
+import { loadJson, writeJson } from "./workflow-store.js";
 import { validateContract } from "./contract-validator.js";
 
 export type AgentResult = {
@@ -68,7 +68,10 @@ function resolveOpenCodeOptions(
   };
 }
 
-function buildPrompt(request: ExecutionRequest): string {
+function buildPrompt(
+  request: ExecutionRequest,
+  localResultPath: string,
+): string {
   return `
 # OpenCode AI Team Execution Task
 
@@ -127,7 +130,7 @@ ${
 
 Before finishing, write a JSON Agent Result to exactly:
 
-${request.context.result_path}
+${localResultPath}
 
 The result must use this exact structure:
 
@@ -185,6 +188,7 @@ Do not finish with only a conversational response.
 async function writeTaskPromptFile(
   request: ExecutionRequest,
   cwd: string,
+  localResultPath: string,
 ): Promise<string> {
   const promptPath = resolve(
     cwd,
@@ -198,7 +202,7 @@ async function writeTaskPromptFile(
     recursive: true,
   });
 
-  await writeFile(promptPath, buildPrompt(request), "utf8");
+  await writeFile(promptPath, buildPrompt(request, localResultPath), "utf8");
 
   return promptPath;
 }
@@ -231,9 +235,20 @@ export async function executeWithOpenCode(
 
   const cwd = context.cwd ?? process.cwd();
 
+  const localResultPath = resolve(
+    cwd,
+    ".amiral",
+    "results",
+    `${request.task_id}.json`,
+  );
+
   const options = resolveOpenCodeOptions(teamConfig, request.agent);
 
   const promptFile = await writeTaskPromptFile(request, cwd);
+
+  await mkdir(dirname(localResultPath), {
+    recursive: true,
+  });
 
   const args = [
     "run",
@@ -266,15 +281,13 @@ export async function executeWithOpenCode(
     );
   }
 
-  const resultPath = resolve(cwd, request.context.result_path);
-
   let result: AgentResult;
 
   try {
-    result = await loadJson<AgentResult>(resultPath);
+    result = await loadJson<AgentResult>(localResultPath);
   } catch {
     throw new Error(
-      `Agent finished but did not produce a readable result file at "${request.context.result_path}".`,
+      `Agent finished but did not produce a readable result file at "${localResultPath}".`,
     );
   }
 
@@ -297,7 +310,7 @@ export async function executeWithOpenCode(
     return result;
   }
 
-  result = await loadJson<AgentResult>(resultPath);
+  result = await loadJson<AgentResult>(localResultPath);
   result = normalizeAgentResult(result);
 
   await validateContract("agent-result", result);
@@ -325,6 +338,13 @@ export async function executeWithOpenCode(
       `Result agent mismatch: expected "${request.agent}", got "${result.agent}".`,
     );
   }
+
+  const canonicalResultPath = resolve(
+    process.cwd(),
+    request.context.result_path,
+  );
+
+  await writeJson(canonicalResultPath, result);
 
   return result;
 }
