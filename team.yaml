@@ -23,31 +23,33 @@ opencode:
   auto_approve: false
 
 agents:
-
   lead:
     role: orchestrator
+    capabilities:
+      - general/orchestration
+      - general/git
+      - general/clean-code
     skills:
       - general/git
       - general/clean-code
+    routing_priority: 5
 
   planner:
     role: planner
+    capabilities:
+      - general/architecture
+      - general/planning
+      - general/task-decomposition
     skills:
       - general/architecture
-  devops:
-    capabilities:
-      - docker
-      - ci
-      - cd
-      - github-actions
-      - deployment
+    routing_priority: 5
 
   frontend:
     role: developer
     capabilities:
-      - frontend/nextjs
-      - frontend/react
       - frontend/typescript
+      - frontend/react
+      - frontend/nextjs
       - frontend/tailwind
       - frontend/storybook
       - frontend/tanstack-query
@@ -60,15 +62,21 @@ agents:
       - frontend/next-seo
       - frontend/next-sitemap
       - frontend/next-pwa
-      - frontend/schadcn
+      - frontend/shadcn
       - frontend/next-themes
       - frontend/material-ui
       - frontend/ant-design
+      - frontend/accessibility
     routing_priority: 10
 
   backend:
     role: developer
     capabilities:
+      - backend/typescript
+      - backend/nodejs
+      - backend/nestjs
+      - backend/express
+      - backend/fastify
       - backend/dotnet
       - backend/ef-core
       - backend/rest-api
@@ -85,9 +93,6 @@ agents:
       - backend/logging
       - backend/supabase
       - backend/stripe
-      - backend/nestjs
-      - backend/express
-      - backend/fastify
       - backend/prisma
       - backend/typeorm
       - backend/mongodb
@@ -98,14 +103,32 @@ agents:
       - backend/python
       - backend/java
       - backend/rust
-      - backend/nodejs
+      - backend/authentication
     routing_priority: 10
 
   database:
     role: specialist
     capabilities:
       - database/postgresql
+      - database/sql
+      - database/migrations
+      - database/schema-design
+      - database/indexing
       - database/optimization
+      - database/query-analysis
+    routing_priority: 20
+
+  devops:
+    role: specialist
+    capabilities:
+      - devops/docker
+      - devops/ci
+      - devops/cd
+      - devops/github-actions
+      - devops/deployment
+      - devops/kubernetes
+      - devops/azure
+      - devops/aws
     routing_priority: 10
 
   reviewer:
@@ -113,23 +136,25 @@ agents:
     capabilities:
       - general/clean-code
       - general/security
-      - code-review
-      - architecture-review
-      - security-review
+      - review/code
+      - review/architecture
+      - review/security
+      - review/performance
     routing_priority: 10
+
   qa:
     role: tester
     capabilities:
       - testing/unit
       - testing/integration
       - testing/e2e
-      - testing
-      - regression
-      - validation
+      - testing/regression
+      - testing/validation
+      - testing/type-check
+      - testing/build
     routing_priority: 10
 
 workflows:
-
   feature:
     file: .opencode/workflows/feature.md
 

@@ -7,14 +7,11 @@
       "routing": {
         "mode": "auto",
         "required_capabilities": [
-          "postgresql",
-          "migrations",
-          "schema-design"
+          "database/postgresql",
+          "database/migrations",
+          "database/schema-design"
         ],
-        "preferred_agents": [
-          "database",
-          "backend"
-        ]
+        "preferred_agents": ["database", "backend"]
       },
       "description": "Create the required database migration.",
       "dependencies": [],
@@ -30,20 +27,15 @@
       "routing": {
         "mode": "auto",
         "required_capabilities": [
-          "typescript",
-          "react",
-          "nextjs"
+          "frontend/typescript",
+          "frontend/react",
+          "frontend/nextjs"
         ],
-        "preferred_agents": [
-          "frontend"
-        ]
+        "preferred_agents": ["frontend"]
       },
       "description": "Implement the account settings UI.",
       "dependencies": [],
-      "acceptance_criteria": [
-        "UI is functional",
-        "Relevant validation passes"
-      ]
+      "acceptance_criteria": ["UI is functional", "Relevant validation passes"]
     }
   ]
 }
