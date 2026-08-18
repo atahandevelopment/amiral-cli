@@ -16,11 +16,14 @@ export type AgentResult = {
   summary: string;
   files_changed?: string[];
   commands_executed?: string[];
-  tests?: Array<{
-    name: string;
-    result: "pass" | "fail" | "skipped";
-    details?: string;
-  }>;
+  tests?: Array<
+    | string
+    | {
+        name: string;
+        result: "pass" | "fail" | "skipped";
+        details?: string;
+      }
+  >;
   risks?: string[];
   additional_tasks_required?: string[];
   blocked_reason?: string;
@@ -126,7 +129,7 @@ Before finishing, write a JSON Agent Result to exactly:
 
 ${request.context.result_path}
 
-The result must use this structure:
+The result must use this exact structure:
 
 \`\`\`json
 {
@@ -138,11 +141,22 @@ The result must use this structure:
   "summary": "Short summary of the work",
   "files_changed": [],
   "commands_executed": [],
-  "tests": [],
+ "tests": [
+  {
+    "name": "dotnet test",
+    "result": "pass",
+    "details": "17 tests passed"
+  }
+  ],
   "risks": [],
   "additional_tasks_required": []
 }
 \`\`\`
+
+IMPORTANT:
+- Every item in "tests" MUST be an object.
+- "result" MUST be one of: "pass", "fail", "skipped".
+- Do not put plain strings inside the "tests" array.
 
 Allowed status values:
 
@@ -263,6 +277,28 @@ export async function executeWithOpenCode(
       `Agent finished but did not produce a readable result file at "${request.context.result_path}".`,
     );
   }
+
+  function normalizeAgentResult(result: AgentResult): AgentResult {
+    if (!Array.isArray(result.tests)) {
+      return result;
+    }
+
+    result.tests = result.tests.map((test) => {
+      if (typeof test === "string") {
+        return {
+          name: test,
+          result: "pass",
+        };
+      }
+
+      return test;
+    });
+
+    return result;
+  }
+
+  result = await loadJson<AgentResult>(resultPath);
+  result = normalizeAgentResult(result);
 
   await validateContract("agent-result", result);
 
