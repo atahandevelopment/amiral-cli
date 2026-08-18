@@ -36,6 +36,12 @@ type OpenCodeOptions = {
   model?: string;
 };
 
+type ProcessResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
 export type OpenCodeExecutionContext = {
   cwd?: string;
 };
@@ -128,7 +134,11 @@ ${
 
 ## Mandatory Result
 
-Before finishing, write a JSON Agent Result to exactly:
+Before finishing:
+
+1. Write the Agent Result JSON to the required result path.
+2. Print the exact same JSON object as your final response.
+3. Do not wrap the final JSON in explanatory prose.
 
 ${localResultPath}
 
@@ -210,17 +220,39 @@ async function runProcess(
   command: string,
   args: string[],
   cwd: string,
-): Promise<number> {
+): Promise<ProcessResult> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
-      cwd: cwd,
-      stdio: "inherit",
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk) => {
+      const text = String(chunk);
+
+      stdout += text;
+
+      process.stdout.write(text);
+    });
+
+    child.stderr?.on("data", (chunk) => {
+      const text = String(chunk);
+
+      stderr += text;
+      process.stderr.write(text);
     });
 
     child.on("error", reject);
 
     child.on("close", (code) => {
-      resolvePromise(code ?? 1);
+      resolvePromise({
+        exitCode: code ?? 1,
+        stdout,
+        stderr,
+      });
     });
   });
 }
@@ -272,11 +304,17 @@ export async function executeWithOpenCode(
     args.push("--auto");
   }
 
-  const exitCode = await runProcess(options.binary, args, cwd);
+  const processResult = await runProcess(options.binary, args, cwd);
 
-  if (exitCode !== 0) {
+  if (processResult.exitCode !== 0) {
     throw new Error(
-      `OpenCode exited with code ${exitCode} for task "${request.task_id}".`,
+      `OpenCode exited with code ${processResult.exitCode} for task "${request.task_id}".`,
+    );
+  }
+
+  if (processResult.exitCode !== 0) {
+    throw new Error(
+      `OpenCode exited with code ${processResult.exitCode} for task "${request.task_id}".`,
     );
   }
 
@@ -309,6 +347,97 @@ export async function executeWithOpenCode(
     return result;
   }
 
+  function extractTextEvents(stdout: string): string {
+    const texts: string[] = [];
+
+    for (const line of stdout.split(/\r?\n/)) {
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        continue;
+      }
+
+      try {
+        const event = JSON.parse(trimmed) as {
+          type?: string;
+          part?: {
+            type?: string;
+            text?: string;
+          };
+        };
+
+        if (
+          event.type === "text" &&
+          event.part?.type === "text" &&
+          typeof event.part.text === "string"
+        ) {
+          texts.push(event.part.text);
+        }
+      } catch {
+        // OpenCode'un JSON olmayan loglarını görmezden gel.
+      }
+    }
+
+    return texts.join("\n").trim();
+  }
+
+  function extractJsonObject(text: string): AgentResult | null {
+    if (!text) {
+      return null;
+    }
+
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+
+    const candidates = [fenced?.[1]?.trim(), text.trim()].filter(
+      (value): value is string => Boolean(value),
+    );
+
+    for (const candidate of candidates) {
+      try {
+        return JSON.parse(candidate) as AgentResult;
+      } catch {
+        // devam
+      }
+
+      const start = candidate.indexOf("{");
+      const end = candidate.lastIndexOf("}");
+
+      if (start >= 0 && end > start) {
+        try {
+          return JSON.parse(candidate.slice(start, end + 1)) as AgentResult;
+        } catch {
+          // devam
+        }
+      }
+    }
+
+    return null;
+  }
+
+  async function readAgentResult(
+    localResultPath: string,
+    stdout: string,
+  ): Promise<AgentResult> {
+    try {
+      return await loadJson<AgentResult>(localResultPath);
+    } catch {
+      const finalText = extractTextEvents(stdout);
+
+      const recovered = extractJsonObject(finalText);
+
+      if (recovered) {
+        await writeJson(localResultPath, recovered);
+
+        return recovered;
+      }
+
+      throw new Error(
+        `Agent finished but produced neither a readable result file nor a recoverable JSON result. Expected "${localResultPath}".`,
+      );
+    }
+  }
+
+  result = await readAgentResult(localResultPath, processResult.stdout);
   result = await loadJson<AgentResult>(localResultPath);
   result = normalizeAgentResult(result);
 
