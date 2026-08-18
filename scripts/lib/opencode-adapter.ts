@@ -307,14 +307,13 @@ export async function executeWithOpenCode(
   const processResult = await runProcess(options.binary, args, cwd);
 
   if (processResult.exitCode !== 0) {
-    throw new Error(
-      `OpenCode exited with code ${processResult.exitCode} for task "${request.task_id}".`,
-    );
-  }
+    const details =
+      processResult.stderr.trim() ||
+      processResult.stdout.trim() ||
+      "No process output was captured.";
 
-  if (processResult.exitCode !== 0) {
     throw new Error(
-      `OpenCode exited with code ${processResult.exitCode} for task "${request.task_id}".`,
+      `OpenCode exited with code ${processResult.exitCode} for task "${request.task_id}".\n${details}`,
     );
   }
 
