@@ -1,0 +1,28 @@
+{
+  "tasks": [
+    {
+      "id": "CODE-001",
+      "title": "Extract duplicated path sanitizer",
+      "agent": "backend",
+      "description": "Inspect the repository and extract duplicated path sanitization logic into one shared utility. Update callers without changing external behavior.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Duplicated path sanitization logic is consolidated",
+        "Existing callers use the shared utility",
+        "Relevant validation passes"
+      ]
+    },
+    {
+      "id": "QA-001",
+      "title": "Validate implementation",
+      "agent": "qa",
+      "description": "Validate the completed implementation.",
+      "dependencies": [
+        "CODE-001"
+      ],
+      "acceptance_criteria": [
+        "Relevant validation passes"
+      ]
+    }
+  ]
+}
