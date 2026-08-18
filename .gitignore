@@ -28,3 +28,6 @@ tasks/.active-workflow
 
 # Amiral runtime worktrees
 .amiral/worktrees/
+
+# Amiral integration worktrees and gate artifacts
+.amiral/integration/

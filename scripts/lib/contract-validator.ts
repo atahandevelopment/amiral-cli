@@ -6,14 +6,12 @@ import addFormats from "ajv-formats";
 const ROOT = process.cwd();
 
 const SCHEMAS = {
-  "agent-result": resolve(
-    ROOT,
-    ".opencode/schemas/agent-result.schema.json",
-  ),
+  "agent-result": resolve(ROOT, ".opencode/schemas/agent-result.schema.json"),
   "execution-request": resolve(
     ROOT,
     ".opencode/schemas/execution-request.schema.json",
   ),
+  "quality-gate": resolve(ROOT, ".opencode/schemas/quality-gate.schema.json"),
 } as const;
 
 type SchemaName = keyof typeof SCHEMAS;

@@ -12,7 +12,8 @@ type ContractType =
   | "task-graph"
   | "agent-result"
   | "review-result"
-  | "execution-request";
+  | "execution-request"
+  | "quality-gate";
 
 type Task = {
   id: string;
@@ -36,6 +37,8 @@ const SCHEMA_PATHS = {
     ROOT,
     ".opencode/schemas/execution-request.schema.json",
   ),
+
+  "quality-gate": resolve(ROOT, ".opencode/schemas/quality-gate.schema.json"),
 } as const;
 
 function fail(message: string): never {
@@ -205,12 +208,14 @@ async function main(): Promise<void> {
     agentResultSchema,
     reviewResultSchema,
     executionRequestSchema,
+    qualityGateSchema,
     value,
   ] = await Promise.all([
     loadJson(SCHEMA_PATHS.task),
     loadJson(SCHEMA_PATHS["agent-result"]),
     loadJson(SCHEMA_PATHS["review-result"]),
     loadJson(SCHEMA_PATHS["execution-request"]),
+    loadJson(SCHEMA_PATHS["quality-gate"]),
     loadJson(resolve(ROOT, input)),
   ]);
 
@@ -225,6 +230,7 @@ async function main(): Promise<void> {
   const validateAgentResult = ajv.compile(agentResultSchema);
   const validateReviewResult = ajv.compile(reviewResultSchema);
   const validateExecutionRequest = ajv.compile(executionRequestSchema);
+  const validateQualityGate = ajv.compile(qualityGateSchema);
 
   switch (contractType) {
     case "task-graph": {
@@ -267,6 +273,11 @@ async function main(): Promise<void> {
       validateWithSchema(validateExecutionRequest, value, "Execution request");
 
       console.log("✅ Execution request is valid.");
+      return;
+
+    case "quality-gate":
+      validateWithSchema(validateQualityGate, value, "Quality gate result");
+      console.log("✅ Quality gate result is valid.");
       return;
   }
 }

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/amiral/quality-gate.schema.json",
+  "title": "Amiral Quality Gate Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workflow_id",
+    "gate",
+    "status",
+    "summary"
+  ],
+  "properties": {
+    "workflow_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gate": {
+      "type": "string",
+      "enum": ["review", "qa"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "CHANGES_REQUESTED", "FAIL", "BLOCKED"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "issue"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "CRITICAL",
+              "HIGH",
+              "MEDIUM",
+              "LOW",
+              "SUGGESTION"
+            ]
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "issue": {
+            "type": "string",
+            "minLength": 1
+          },
+          "recommendation": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
