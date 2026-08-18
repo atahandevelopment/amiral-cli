@@ -70,6 +70,23 @@ agents:
       - backend/aws
       - backend/azure
       - backend/elasticsearch
+      - backend/logging
+      - backend/supabase
+      - backend/stripe
+      - backend/nestjs
+      - backend/express
+      - backend/fastify
+      - backend/prisma
+      - backend/typeorm
+      - backend/mongodb
+      - backend/mysql
+      - backend/postgresql
+      - backend/sqlite
+      - backend/golang
+      - backend/python
+      - backend/java
+      - backend/rust
+      - backend/nodejs
 
   database:
     role: specialist

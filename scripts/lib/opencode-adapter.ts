@@ -192,8 +192,7 @@ async function writeTaskPromptFile(
 ): Promise<string> {
   const promptPath = resolve(
     cwd,
-    "tasks",
-    request.workflow_id,
+    ".amiral",
     "requests",
     `${request.task_id}.prompt.md`,
   );
@@ -242,13 +241,13 @@ export async function executeWithOpenCode(
     `${request.task_id}.json`,
   );
 
-  const options = resolveOpenCodeOptions(teamConfig, request.agent);
-
-  const promptFile = await writeTaskPromptFile(request, cwd);
-
   await mkdir(dirname(localResultPath), {
     recursive: true,
   });
+
+  const options = resolveOpenCodeOptions(teamConfig, request.agent);
+
+  const promptFile = await writeTaskPromptFile(request, cwd, localResultPath);
 
   const args = [
     "run",
