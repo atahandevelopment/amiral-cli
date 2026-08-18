@@ -67,10 +67,7 @@ async function listRequestFiles(
   workflowId: string,
   requestsDirectory: string,
 ): Promise<string[]> {
-  const directory = resolve(
-    workflowDir(workflowId),
-    requestsDirectory,
-  );
+  const directory = resolve(workflowDir(workflowId), requestsDirectory);
 
   try {
     const entries = await readdir(directory, {
@@ -78,11 +75,7 @@ async function listRequestFiles(
     });
 
     return entries
-      .filter(
-        (entry) =>
-          entry.isFile() &&
-          entry.name.endsWith(".json"),
-      )
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
       .map((entry) => resolve(directory, entry.name));
   } catch {
     return [];
@@ -93,15 +86,13 @@ function isDispatchableRequest(
   request: ExecutionRequest,
   state: WorkflowState,
 ): boolean {
-  const task = state.tasks.find(
-    (item) => item.id === request.task_id,
-  );
+  const task = state.tasks.find((item) => item.id === request.task_id);
 
   return Boolean(
     task &&
-      task.status === "in_progress" &&
-      task.lease_id &&
-      task.lease_id === request.lease_id,
+    task.status === "in_progress" &&
+    task.lease_id &&
+    task.lease_id === request.lease_id,
   );
 }
 
@@ -110,9 +101,7 @@ async function applyResult(
   result: Awaited<ReturnType<typeof executeWithOpenCode>>,
 ): Promise<void> {
   const state = await loadState(request.workflow_id);
-  const task = state.tasks.find(
-    (item) => item.id === request.task_id,
-  );
+  const task = state.tasks.find((item) => item.id === request.task_id);
 
   if (!task) {
     throw new Error(`Task "${request.task_id}" does not exist.`);
@@ -147,15 +136,13 @@ async function applyResult(
     case "failed":
       task.status = "failed";
       task.completed_at = null;
-      task.last_error =
-        result.failure_reason ?? result.summary;
+      task.last_error = result.failure_reason ?? result.summary;
       break;
 
     case "blocked":
       task.status = "blocked";
       task.completed_at = null;
-      task.last_error =
-        result.blocked_reason ?? result.summary;
+      task.last_error = result.blocked_reason ?? result.summary;
       break;
   }
 
@@ -199,21 +186,13 @@ async function executeRequest(
       request.task_id,
     );
 
-    console.log(
-      `[${request.task_id}] worktree: ${worktree.worktreePath}`,
-    );
+    console.log(`[${request.task_id}] worktree: ${worktree.worktreePath}`);
 
-    const result = await executeWithOpenCode(
-      request,
-      teamConfig,
-      {
-        cwd: worktree.worktreePath,
-      },
-    );
+    const result = await executeWithOpenCode(request, teamConfig, {
+      cwd: worktree.worktreePath,
+    });
 
-    const diff = await getWorktreeDiff(
-      worktree.worktreePath,
-    );
+    const diff = await getWorktreeDiff(worktree.worktreePath);
 
     await applyResult(request, result);
 
@@ -221,10 +200,9 @@ async function executeRequest(
       taskId: request.task_id,
       agent: request.agent,
       status: result.status,
-      summary:
-        diff
-          ? `${result.summary} | Changes detected in isolated worktree.`
-          : result.summary,
+      summary: diff
+        ? `${result.summary} | Changes detected in isolated worktree.`
+        : result.summary,
       branch: worktree.branchName,
       worktree: worktree.worktreePath,
     };
@@ -233,10 +211,7 @@ async function executeRequest(
       taskId: request.task_id,
       agent: request.agent,
       status: "error",
-      summary:
-        error instanceof Error
-          ? error.message
-          : String(error),
+      summary: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -258,8 +233,7 @@ async function runPool<T, R>(
       }
 
       nextIndex += 1;
-      results[current] =
-        await worker(items[current]);
+      results[current] = await worker(items[current]);
     }
   }
 
@@ -274,9 +248,7 @@ async function runPool<T, R>(
   return results;
 }
 
-function printSummary(
-  results: DispatchResult[],
-): void {
+function printSummary(results: DispatchResult[]): void {
   console.log("");
   console.log("Dispatch summary");
   console.log("────────────────────────────────────────");
@@ -302,6 +274,9 @@ function printSummary(
     if (result.worktree) {
       console.log(`    worktree: ${result.worktree}`);
     }
+    if (result.status === "error") {
+      console.log(`    error: ${result.summary}`);
+    }
   }
 }
 
@@ -312,38 +287,27 @@ async function main(): Promise<void> {
     await assertCleanWorkingTree();
 
     const teamConfig = await loadTeamConfig();
-    const execution =
-      resolveExecutionConfig(teamConfig);
+    const execution = resolveExecutionConfig(teamConfig);
     const state = await loadState(cli.workflowId);
 
-    if (
-      state.status === "completed" ||
-      state.status === "cancelled"
-    ) {
+    if (state.status === "completed" || state.status === "cancelled") {
       fail(
         `Workflow "${state.workflow_id}" cannot be dispatched (${state.status}).`,
       );
     }
 
-    const requestFiles =
-      await listRequestFiles(
-        state.workflow_id,
-        execution.requests_directory,
-      );
+    const requestFiles = await listRequestFiles(
+      state.workflow_id,
+      execution.requests_directory,
+    );
 
     const requests: ExecutionRequest[] = [];
 
     for (const file of requestFiles) {
       try {
-        const request =
-          await loadJson<ExecutionRequest>(file);
+        const request = await loadJson<ExecutionRequest>(file);
 
-        if (
-          isDispatchableRequest(
-            request,
-            state,
-          )
-        ) {
+        if (isDispatchableRequest(request, state)) {
           requests.push(request);
         }
       } catch {
@@ -352,9 +316,7 @@ async function main(): Promise<void> {
     }
 
     if (!requests.length) {
-      console.log(
-        "No dispatchable execution requests found.",
-      );
+      console.log("No dispatchable execution requests found.");
       return;
     }
 
@@ -370,11 +332,7 @@ async function main(): Promise<void> {
 
     printSummary(results);
   } catch (error) {
-    fail(
-      error instanceof Error
-        ? error.message
-        : String(error),
-    );
+    fail(error instanceof Error ? error.message : String(error));
   }
 }
 
