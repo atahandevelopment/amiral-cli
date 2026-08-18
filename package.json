@@ -10,7 +10,7 @@
     "tsx": "^4.23.12",
     "yaml": "^2.9.0"
   },
-  "name": "opencode-ai-team",
+  "name": "amiral/cli",
   "version": "1.0.0",
   "description": "A role-based, dependency-aware multi-agent software development team for [OpenCode](https://opencode.ai/).",
   "main": "index.js",
