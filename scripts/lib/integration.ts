@@ -19,17 +19,17 @@ async function runGit(args: string[], cwd = ROOT): Promise<GitResult> {
     let stdout = "";
     let stderr = "";
 
-    child.stdout?.on("data", (chunk) => {
+    child.stdout?.on("data", (chunk: any) => {
       stdout += String(chunk);
     });
 
-    child.stderr?.on("data", (chunk) => {
+    child.stderr?.on("data", (chunk: any) => {
       stderr += String(chunk);
     });
 
     child.on("error", reject);
 
-    child.on("close", (code) => {
+    child.on("close", (code: any) => {
       resolvePromise({
         code: code ?? 1,
         stdout: stdout.trim(),

@@ -183,10 +183,15 @@ async function executeRequest(
 ): Promise<DispatchResult> {
   const teamConfig = await loadTeamConfig();
 
+  const baseRef = request.task_id.startsWith("FIX-")
+    ? `amiral/${request.workflow_id}/integration`
+    : "HEAD";
+
   try {
     const worktree = await createTaskWorktree(
       request.workflow_id,
       request.task_id,
+      baseRef,
     );
 
     console.log(`[${request.task_id}] worktree: ${worktree.worktreePath}`);
