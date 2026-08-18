@@ -7,23 +7,36 @@ import spawn from "cross-spawn";
 import type { TeamConfig } from "./lib/team-config.js";
 import { loadTeamConfig } from "./lib/team-config.js";
 import { validateContract } from "./lib/contract-validator.js";
-import { loadJson, loadState, saveState } from "./lib/workflow-store.js";
+import {
+  loadJson,
+  loadState,
+  saveState,
+  writeJson,
+} from "./lib/workflow-store.js";
 import { createIntegrationWorkspace } from "./lib/integration.js";
 
 type GateType = "review" | "qa";
+
+type FindingSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "SUGGESTION";
+
+type QualityGateFinding = {
+  severity: FindingSeverity;
+  file?: string;
+  line?: number;
+  issue: string;
+  recommendation?: string;
+};
 
 type QualityGateResult = {
   workflow_id: string;
   gate: GateType;
   status: "PASS" | "CHANGES_REQUESTED" | "FAIL" | "BLOCKED";
   summary: string;
-  findings?: Array<{
-    severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "SUGGESTION";
-    file?: string;
-    line?: number;
-    issue: string;
-    recommendation?: string;
-  }>;
+  findings: QualityGateFinding[];
+};
+
+type RawQualityGateResult = Omit<QualityGateResult, "findings"> & {
+  findings?: Array<Record<string, unknown>>;
 };
 
 function fail(message: string): never {
@@ -43,6 +56,7 @@ async function runProcess(
     });
 
     child.on("error", reject);
+
     child.on("close", (code) => {
       resolvePromise(code ?? 1);
     });
@@ -70,10 +84,76 @@ function resolveAutoApprove(config: TeamConfig): boolean {
   return root.opencode?.auto_approve === true;
 }
 
+function normalizeSeverity(value: unknown): FindingSeverity {
+  if (
+    value === "CRITICAL" ||
+    value === "HIGH" ||
+    value === "MEDIUM" ||
+    value === "LOW" ||
+    value === "SUGGESTION"
+  ) {
+    return value;
+  }
+
+  return "MEDIUM";
+}
+
+function normalizeQualityGateResult(
+  value: RawQualityGateResult,
+): QualityGateResult {
+  const findings = Array.isArray(value.findings)
+    ? value.findings.map((finding): QualityGateFinding => {
+        const issue =
+          typeof finding.issue === "string"
+            ? finding.issue
+            : typeof finding.title === "string"
+              ? finding.title
+              : typeof finding.description === "string"
+                ? finding.description
+                : "Reviewer reported an unspecified issue.";
+
+        const file =
+          typeof finding.file === "string"
+            ? finding.file
+            : typeof finding.path === "string"
+              ? finding.path
+              : undefined;
+
+        const line =
+          typeof finding.line === "number" ? finding.line : undefined;
+
+        const recommendation =
+          typeof finding.recommendation === "string"
+            ? finding.recommendation
+            : typeof finding.suggestion === "string"
+              ? finding.suggestion
+              : typeof finding.fix === "string"
+                ? finding.fix
+                : undefined;
+
+        return {
+          severity: normalizeSeverity(finding.severity),
+          issue,
+          ...(file ? { file } : {}),
+          ...(line ? { line } : {}),
+          ...(recommendation ? { recommendation } : {}),
+        };
+      })
+    : [];
+
+  return {
+    workflow_id: value.workflow_id,
+    gate: value.gate,
+    status: value.status,
+    summary: value.summary,
+    findings,
+  };
+}
+
 function buildGatePrompt(
   workflowId: string,
   gate: GateType,
-  resultPath: string,
+  resultFile: string,
 ): string {
   if (gate === "review") {
     return `
@@ -85,9 +165,10 @@ ${workflowId}
 
 You are the Reviewer.
 
-Inspect the entire current worktree diff and relevant repository context.
+Inspect the current integration worktree and relevant repository context.
 
 Check:
+
 - correctness
 - architecture
 - maintainability
@@ -97,31 +178,71 @@ Check:
 - testing
 - duplication
 - unnecessary complexity
+- regressions
 
 Do not implement fixes.
 
 Write the result JSON to exactly:
 
-${resultPath}
+${resultFile}
 
-Schema:
+The result MUST use exactly this structure:
 
 {
   "workflow_id": "${workflowId}",
   "gate": "review",
   "status": "PASS",
   "summary": "Short review summary",
-  "findings": []
+  "findings": [
+    {
+      "severity": "HIGH",
+      "issue": "Description of the issue",
+      "file": "optional/path/to/file.ts",
+      "line": 42,
+      "recommendation": "Recommended fix"
+    }
+  ]
 }
 
 Allowed review statuses:
+
 - PASS
 - CHANGES_REQUESTED
 - BLOCKED
 
+Allowed finding severity values:
+
+- CRITICAL
+- HIGH
+- MEDIUM
+- LOW
+- SUGGESTION
+
+IMPORTANT:
+
+Every finding MUST use only these keys:
+
+- severity
+- issue
+- file
+- line
+- recommendation
+
+Do NOT use:
+
+- title
+- description
+- path
+- suggestion
+- fix
+
 Use CHANGES_REQUESTED if implementation changes are required.
 
-CRITICAL or HIGH findings must never result in PASS.
+If any CRITICAL or HIGH finding exists, status MUST NOT be PASS.
+
+If there are no findings, return:
+
+"findings": []
 `.trim();
   }
 
@@ -135,6 +256,7 @@ ${workflowId}
 You are the QA Agent.
 
 Run the appropriate validation available in the repository:
+
 - build
 - type checking
 - linting
@@ -147,22 +269,43 @@ Do not implement fixes.
 
 Write the result JSON to exactly:
 
-${resultPath}
+${resultFile}
 
-Schema:
+The result MUST use exactly this structure:
 
 {
   "workflow_id": "${workflowId}",
   "gate": "qa",
   "status": "PASS",
   "summary": "Short QA summary",
-  "findings": []
+  "findings": [
+    {
+      "severity": "HIGH",
+      "issue": "Description of the validation failure",
+      "file": "optional/path/to/file.ts",
+      "line": 42,
+      "recommendation": "Recommended fix"
+    }
+  ]
 }
 
 Allowed QA statuses:
+
 - PASS
 - FAIL
 - BLOCKED
+
+Every finding MUST use only these keys:
+
+- severity
+- issue
+- file
+- line
+- recommendation
+
+If there are no findings, return:
+
+"findings": []
 `.trim();
 }
 
@@ -170,20 +313,13 @@ async function writePrompt(
   cwd: string,
   workflowId: string,
   gate: GateType,
-): Promise<{ promptFile: string; resultFile: string }> {
-  const resultFile = resolve(
-    cwd,
-    ".amiral",
-    "gates",
-    `${gate}-result.json`,
-  );
+): Promise<{
+  promptFile: string;
+  resultFile: string;
+}> {
+  const resultFile = resolve(cwd, ".amiral", "gates", `${gate}-result.json`);
 
-  const promptFile = resolve(
-    cwd,
-    ".amiral",
-    "gates",
-    `${gate}-prompt.md`,
-  );
+  const promptFile = resolve(cwd, ".amiral", "gates", `${gate}-prompt.md`);
 
   await mkdir(dirname(promptFile), {
     recursive: true,
@@ -191,11 +327,7 @@ async function writePrompt(
 
   await writeFile(
     promptFile,
-    buildGatePrompt(
-      workflowId,
-      gate,
-      resultFile,
-    ),
+    buildGatePrompt(workflowId, gate, resultFile),
     "utf8",
   );
 
@@ -210,9 +342,8 @@ async function runGate(
   gate: GateType,
 ): Promise<QualityGateResult> {
   const teamConfig = await loadTeamConfig();
-  const integration = await createIntegrationWorkspace(
-    workflowId,
-  );
+
+  const integration = await createIntegrationWorkspace(workflowId);
 
   const { promptFile, resultFile } = await writePrompt(
     integration.worktreePath,
@@ -220,10 +351,7 @@ async function runGate(
     gate,
   );
 
-  const agent =
-    gate === "review"
-      ? "reviewer"
-      : "qa";
+  const agent = gate === "review" ? "reviewer" : "qa";
 
   const args = [
     "run",
@@ -254,35 +382,30 @@ async function runGate(
     );
   }
 
-  const result =
-    await loadJson<QualityGateResult>(
-      resultFile,
-    );
+  const rawResult = await loadJson<RawQualityGateResult>(resultFile);
 
-  await validateContract(
-    "quality-gate",
-    result,
-  );
+  const result = normalizeQualityGateResult(rawResult);
+
+  await validateContract("quality-gate", result);
+
+  // Canonical formatı dosyaya geri yaz.
+  await writeJson(resultFile, result);
 
   if (result.workflow_id !== workflowId) {
-    throw new Error(
-      `${gate} result workflow mismatch.`,
-    );
+    throw new Error(`${gate} result workflow mismatch.`);
   }
 
   if (result.gate !== gate) {
-    throw new Error(
-      `${gate} result gate mismatch.`,
-    );
+    throw new Error(`${gate} result gate mismatch.`);
   }
 
   return result;
 }
 
 async function main(): Promise<void> {
-  const [gate, workflowIdArg] = process.argv.slice(2);
+  const [gateArg, workflowIdArg] = process.argv.slice(2);
 
-  if (!["review", "qa"].includes(gate)) {
+  if (gateArg !== "review" && gateArg !== "qa") {
     fail(
       "Usage: npx tsx scripts/run-quality-gate.ts <review|qa> [workflow-id]",
     );
@@ -290,35 +413,49 @@ async function main(): Promise<void> {
 
   try {
     const state = await loadState(workflowIdArg);
-    const result = await runGate(
-      state.workflow_id,
-      gate as GateType,
-    );
+
+    const gate = gateArg as GateType;
+
+    const result = await runGate(state.workflow_id, gate);
 
     console.log("");
-    console.log(
-      `✅ ${gate.toUpperCase()} gate: ${result.status}`,
-    );
+    console.log(`✅ ${gate.toUpperCase()} gate: ${result.status}`);
     console.log(result.summary);
 
-    if (
-      gate === "qa" &&
-      result.status === "PASS"
-    ) {
+    if (result.findings.length) {
+      console.log("");
+      console.log("Findings:");
+
+      for (const finding of result.findings) {
+        const location = finding.file
+          ? ` (${finding.file}${finding.line ? `:${finding.line}` : ""})`
+          : "";
+
+        console.log(`- [${finding.severity}] ${finding.issue}${location}`);
+
+        if (finding.recommendation) {
+          console.log(`  Recommendation: ${finding.recommendation}`);
+        }
+      }
+    }
+
+    if (gate === "review" && result.status !== "PASS") {
+      console.log("");
+      console.log("⛔ QA must not run until Review returns PASS.");
+
+      return;
+    }
+
+    if (gate === "qa" && result.status === "PASS") {
       state.status = "completed";
+
       await saveState(state);
 
       console.log("");
-      console.log(
-        `✅ Workflow ${state.workflow_id} completed.`,
-      );
+      console.log(`✅ Workflow ${state.workflow_id} completed.`);
     }
   } catch (error) {
-    fail(
-      error instanceof Error
-        ? error.message
-        : String(error),
-    );
+    fail(error instanceof Error ? error.message : String(error));
   }
 }
 

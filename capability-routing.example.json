@@ -1,0 +1,49 @@
+{
+  "tasks": [
+    {
+      "id": "AUTO-001",
+      "title": "Implement PostgreSQL migration",
+      "agent": "backend",
+      "routing": {
+        "mode": "auto",
+        "required_capabilities": [
+          "postgresql",
+          "migrations",
+          "schema-design"
+        ],
+        "preferred_agents": [
+          "database",
+          "backend"
+        ]
+      },
+      "description": "Create the required database migration.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Migration is valid",
+        "Schema change is documented"
+      ]
+    },
+    {
+      "id": "AUTO-002",
+      "title": "Build account settings interface",
+      "agent": "backend",
+      "routing": {
+        "mode": "auto",
+        "required_capabilities": [
+          "typescript",
+          "react",
+          "nextjs"
+        ],
+        "preferred_agents": [
+          "frontend"
+        ]
+      },
+      "description": "Implement the account settings UI.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "UI is functional",
+        "Relevant validation passes"
+      ]
+    }
+  ]
+}

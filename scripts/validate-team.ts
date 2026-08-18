@@ -196,6 +196,7 @@ async function main(): Promise<void> {
       "agent-result",
       "review-result",
       "execution-request",
+      "quality-gate",
     ].includes(type)
   ) {
     printUsage();

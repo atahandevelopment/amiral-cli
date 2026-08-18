@@ -34,10 +34,17 @@ agents:
     role: planner
     skills:
       - general/architecture
+  devops:
+    capabilities:
+      - docker
+      - ci
+      - cd
+      - github-actions
+      - deployment
 
   frontend:
     role: developer
-    skills:
+    capabilities:
       - frontend/nextjs
       - frontend/react
       - frontend/typescript
@@ -57,10 +64,11 @@ agents:
       - frontend/next-themes
       - frontend/material-ui
       - frontend/ant-design
+    routing_priority: 10
 
   backend:
     role: developer
-    skills:
+    capabilities:
       - backend/dotnet
       - backend/ef-core
       - backend/rest-api
@@ -91,26 +99,34 @@ agents:
       - backend/java
       - backend/rust
       - backend/nodejs
+    routing_priority: 10
 
   database:
     role: specialist
-    skills:
+    capabilities:
       - database/postgresql
       - database/optimization
+    routing_priority: 10
 
   reviewer:
     role: reviewer
-    skills:
+    capabilities:
       - general/clean-code
       - general/security
-
+      - code-review
+      - architecture-review
+      - security-review
+    routing_priority: 10
   qa:
     role: tester
-    skills:
+    capabilities:
       - testing/unit
       - testing/integration
       - testing/e2e
-
+      - testing
+      - regression
+      - validation
+    routing_priority: 10
 
 workflows:
 
