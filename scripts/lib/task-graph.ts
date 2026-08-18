@@ -15,7 +15,15 @@ export function isTaskReady(
 }
 
 export function findReadyTasks(tasks: RuntimeTask[]): RuntimeTask[] {
-  return tasks.filter((task) => isTaskReady(task, { tasks }));
+  return tasks.filter((task) => {
+    // Reviewer and QA are quality gates,
+    // not normal implementation tasks.
+    if (task.agent === "reviewer" || task.agent === "qa") {
+      return false;
+    }
+
+    return isTaskReady(task, { tasks });
+  });
 }
 
 export function assertNoDuplicateTaskIds(tasks: TaskGraph["tasks"]): void {
