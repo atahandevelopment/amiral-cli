@@ -7,6 +7,9 @@ logs
 #env files
 .env*
 
+#lock files
+package-lock.json
+
 #runtime
 .opencode/runtime/state.json
 .opencode/runtime/history.json
