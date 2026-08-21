@@ -97,6 +97,19 @@ async function showStatus(workflowId?: string): Promise<void> {
         readyIds.has(task.id) ? " READY" : ""
       }`,
     );
+
+    if (task.status === "retry_wait") {
+      console.log(
+        `  provider: ${task.last_provider_error?.provider ?? "unknown"}`,
+      );
+      console.log(
+        `  reason: ${task.last_provider_error?.kind ?? "unknown"}`,
+      );
+      console.log(`  retry: ${task.retry_not_before ?? "<invalid>"}`);
+      console.log(
+        `  attempt: ${task.attempts}/${task.max_attempts ?? "?"}`,
+      );
+    }
   }
 }
 

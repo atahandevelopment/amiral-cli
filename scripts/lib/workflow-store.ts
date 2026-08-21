@@ -157,16 +157,20 @@ export function deriveWorkflowStatus(
     return "failed";
   }
 
+  // retry_wait tasks resolve on their own; they must not make the whole
+  // workflow look blocked.
   if (
     state.tasks.some((task) => task.status === "blocked") &&
-    !state.tasks.some((task) => task.status === "in_progress")
+    !state.tasks.some((task) =>
+      ["in_progress", "retry_wait"].includes(task.status),
+    )
   ) {
     return "blocked";
   }
 
   if (
     state.tasks.some((task) =>
-      ["in_progress", "completed"].includes(task.status),
+      ["in_progress", "completed", "retry_wait"].includes(task.status),
     )
   ) {
     return "running";

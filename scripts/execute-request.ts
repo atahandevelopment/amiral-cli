@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 
 import { resolve } from "node:path";
+import type { AgentResult } from "./lib/agent-result.js";
 import type { ExecutionRequest } from "./lib/execution-request.js";
-import type { AgentResult } from "./lib/opencode-adapter.js";
 import {
-  executeWithOpenCode,
-} from "./lib/opencode-adapter.js";
-import { loadTeamConfig } from "./lib/team-config.js";
+  loadTeamConfig,
+  resolveDefaultProviderName,
+  resolveProviderConfig,
+} from "./lib/team-config.js";
+import { getExecutionProvider } from "./lib/providers/provider-registry.js";
+import { ProviderError } from "./lib/providers/provider-error.js";
+import {
+  applyPermanentProviderFailure,
+  applyProviderRetry,
+  maybeRecordProviderRecovery,
+} from "./lib/provider-retry.js";
 import {
   appendHistory,
   deriveWorkflowStatus,
@@ -70,6 +78,10 @@ async function applyResult(
       break;
   }
 
+  if (result.status === "completed") {
+    await maybeRecordProviderRecovery(state, task);
+  }
+
   state.status = deriveWorkflowStatus(state);
   await saveState(state);
 
@@ -86,7 +98,7 @@ async function applyResult(
     workflow_id: state.workflow_id,
     event: "task_status_changed",
     task_id: task.id,
-    message: `in_progress -> ${task.status} (validated OpenCode result)`,
+    message: `in_progress -> ${task.status} (validated provider result)`,
   });
 
   if (previousWorkflowStatus !== state.status) {
@@ -113,9 +125,75 @@ async function main(): Promise<void> {
     const request = await loadJson<ExecutionRequest>(absolute);
     const teamConfig = await loadTeamConfig();
 
-    console.log(`Executing: ${request.task_id} -> ${request.agent}`);
+    // Prefer the provider recorded on the request; fall back to the
+    // configured default for legacy request files.
+    const providerName =
+      request.provider ?? resolveDefaultProviderName(teamConfig);
 
-    const result = await executeWithOpenCode(request, teamConfig);
+    const provider = getExecutionProvider(providerName);
+
+    console.log(
+      `Executing: ${request.task_id} -> ${request.agent} (provider: ${providerName})`,
+    );
+
+    let result: AgentResult;
+
+    try {
+      const output = await provider.execute({
+        request,
+        teamConfig,
+        cwd: process.cwd(),
+      });
+
+      if (!output.result) {
+        throw new Error(
+          `Provider "${providerName}" returned no Agent Result for task "${request.task_id}".`,
+        );
+      }
+
+      result = output.result;
+    } catch (error) {
+      if (!(error instanceof ProviderError)) {
+        throw error;
+      }
+
+      const retryConfig = resolveProviderConfig(teamConfig, providerName).retry;
+
+      console.log("");
+      console.log(
+        `⚠ ${request.task_id} ${request.agent} provider failure (${error.kind})`,
+      );
+      console.log(`    provider: ${error.provider}`);
+
+      if (error.retryable) {
+        const outcome = await applyProviderRetry({
+          request,
+          error,
+          retryConfig,
+        });
+
+        if (outcome.outcome === "retry_wait") {
+          console.log(`    retry at: ${outcome.retryNotBefore}`);
+          console.log(
+            `    attempt: ${outcome.attempt}/${outcome.maxAttempts}`,
+          );
+          fail(
+            `Transient provider failure (${error.kind}); retry scheduled at ${outcome.retryNotBefore}.`,
+          );
+        }
+
+        console.log(
+          `    attempt: ${outcome.attempt}/${outcome.maxAttempts} — budget exhausted, task blocked`,
+        );
+        fail(
+          `Transient provider failure (${error.kind}) exhausted the retry budget.`,
+        );
+      }
+
+      await applyPermanentProviderFailure({ request, error });
+      console.log(`    retryable: false — task failed`);
+      fail(`Permanent provider failure (${error.kind}).`);
+    }
 
     await applyResult(request, result);
 

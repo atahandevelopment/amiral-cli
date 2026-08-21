@@ -3,10 +3,22 @@
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import type { AgentResult } from "./lib/agent-result.js";
 import type { ExecutionRequest } from "./lib/execution-request.js";
 import type { WorkflowState } from "./lib/types.js";
-import { executeWithOpenCode } from "./lib/opencode-adapter.js";
-import { loadTeamConfig, resolveExecutionConfig } from "./lib/team-config.js";
+import {
+  loadTeamConfig,
+  resolveDefaultProviderName,
+  resolveExecutionConfig,
+  resolveProviderConfig,
+} from "./lib/team-config.js";
+import { getExecutionProvider } from "./lib/providers/provider-registry.js";
+import { ProviderError } from "./lib/providers/provider-error.js";
+import {
+  applyPermanentProviderFailure,
+  applyProviderRetry,
+  maybeRecordProviderRecovery,
+} from "./lib/provider-retry.js";
 import { finalizeTaskWorktree } from "./lib/task-finalizer.js";
 
 import {
@@ -23,14 +35,23 @@ import {
   getWorktreeDiff,
 } from "./lib/git-worktree.js";
 
+type DispatchResultStatus =
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "retry_wait"
+  | "error";
+
 type DispatchResult = {
   taskId: string;
   agent: string;
-  status: "completed" | "failed" | "blocked" | "error";
+  status: DispatchResultStatus;
   summary: string;
   branch?: string;
   worktree?: string;
   commit?: string;
+  /** Structured provider diagnostics for retry_wait / failed outcomes. */
+  diagnostics?: string[];
 };
 
 type CliOptions = {
@@ -101,7 +122,7 @@ function isDispatchableRequest(
 
 async function applyResult(
   request: ExecutionRequest,
-  result: Awaited<ReturnType<typeof executeWithOpenCode>>,
+  result: AgentResult,
 ): Promise<void> {
   const state = await loadState(request.workflow_id);
   const task = state.tasks.find((item) => item.id === request.task_id);
@@ -149,6 +170,10 @@ async function applyResult(
       break;
   }
 
+  if (result.status === "completed") {
+    await maybeRecordProviderRecovery(state, task);
+  }
+
   state.status = deriveWorkflowStatus(state);
   await saveState(state);
 
@@ -180,12 +205,18 @@ async function applyResult(
 
 async function executeRequest(
   request: ExecutionRequest,
+  providerName: string,
 ): Promise<DispatchResult> {
   const teamConfig = await loadTeamConfig();
+
+  const provider = getExecutionProvider(providerName);
 
   const baseRef = request.task_id.startsWith("FIX-")
     ? `amiral/${request.workflow_id}/integration`
     : "HEAD";
+
+  let worktreePath: string | undefined;
+  let branchName: string | undefined;
 
   try {
     const worktree = await createTaskWorktree(
@@ -194,11 +225,18 @@ async function executeRequest(
       baseRef,
     );
 
+    worktreePath = worktree.worktreePath;
+    branchName = worktree.branchName;
+
     console.log(`[${request.task_id}] worktree: ${worktree.worktreePath}`);
 
-    const result = await executeWithOpenCode(request, teamConfig, {
+    const output = await provider.execute({
+      request,
+      teamConfig,
       cwd: worktree.worktreePath,
     });
+
+    const result = output.result!;
 
     let commit: string | undefined;
 
@@ -229,6 +267,17 @@ async function executeRequest(
       commit,
     };
   } catch (error) {
+    if (error instanceof ProviderError) {
+      return await handleProviderFailure({
+        request,
+        error,
+        teamConfig,
+        providerName,
+        worktreePath,
+        branchName,
+      });
+    }
+
     return {
       taskId: request.task_id,
       agent: request.agent,
@@ -236,6 +285,129 @@ async function executeRequest(
       summary: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+type ProviderFailureContext = {
+  request: ExecutionRequest;
+  error: ProviderError;
+  teamConfig: Awaited<ReturnType<typeof loadTeamConfig>>;
+  providerName: string;
+  worktreePath?: string;
+  branchName?: string;
+};
+
+/**
+ * Structured handling of classified provider failures.
+ *
+ * Retry safety policy (Phase 13):
+ * - The task worktree is NEVER removed or recreated on a provider failure.
+ *   Partial changes from the failed attempt stay on the task branch and the
+ *   retry runs in the same worktree, so no diagnostics are lost and the
+ *   agent can inspect what was already done.
+ */
+async function handleProviderFailure(
+  context: ProviderFailureContext,
+): Promise<DispatchResult> {
+  const { request, error, teamConfig, providerName } = context;
+
+  const retryConfig = resolveProviderConfig(teamConfig, providerName).retry;
+
+  console.log("");
+  console.log(
+    `⚠ ${request.task_id} ${request.agent} provider failure ` +
+      `(${error.kind}${error.statusCode ? `, status ${error.statusCode}` : ""})`,
+  );
+
+  if (error.retryable) {
+    const outcome = await applyProviderRetry({
+      request,
+      error,
+      retryConfig,
+    });
+
+    if (outcome.outcome === "retry_wait") {
+      console.log(`    provider: ${error.provider}`);
+      console.log(`    error: ${error.kind}`);
+      if (error.statusCode !== undefined) {
+        console.log(`    status: ${error.statusCode}`);
+      }
+      console.log(`    retry at: ${outcome.retryNotBefore}`);
+      console.log(
+        `    attempt: ${outcome.attempt}/${outcome.maxAttempts}`,
+      );
+
+      if (context.worktreePath) {
+        console.log(
+          `    worktree preserved for retry: ${context.worktreePath}`,
+        );
+      }
+
+      return {
+        taskId: request.task_id,
+        agent: request.agent,
+        status: "retry_wait",
+        summary:
+          `Transient provider failure (${error.kind}); ` +
+          `retry scheduled at ${outcome.retryNotBefore}.`,
+        branch: context.branchName,
+        worktree: context.worktreePath,
+        diagnostics: [describeError(error)],
+      };
+    }
+
+    // Budget exhausted → blocked.
+    console.log(`    provider: ${error.provider}`);
+    console.log(`    error: ${error.kind}`);
+    console.log(
+      `    attempt: ${outcome.attempt}/${outcome.maxAttempts} — budget exhausted, task blocked`,
+    );
+
+    return {
+      taskId: request.task_id,
+      agent: request.agent,
+      status: "blocked",
+      summary:
+        `Transient provider failure (${error.kind}) exhausted the retry budget ` +
+        `(${outcome.attempt}/${outcome.maxAttempts}).`,
+      branch: context.branchName,
+      worktree: context.worktreePath,
+      diagnostics: [describeError(error)],
+    };
+  }
+
+  await applyPermanentProviderFailure({ request, error });
+
+  console.log(`    provider: ${error.provider}`);
+  console.log(`    error: ${error.kind}`);
+  console.log(`    retryable: false — task failed`);
+
+  return {
+    taskId: request.task_id,
+    agent: request.agent,
+    status: "failed",
+    summary:
+      `Permanent provider failure (${error.kind}). ` +
+      `Worktree preserved with partial changes.`,
+    branch: context.branchName,
+    worktree: context.worktreePath,
+    diagnostics: [describeError(error)],
+  };
+}
+
+function describeError(error: ProviderError): string {
+  const parts = [
+    `provider=${error.provider}`,
+    `kind=${error.kind}`,
+    `retryable=${error.retryable}`,
+  ];
+
+  if (error.statusCode !== undefined) {
+    parts.push(`status=${error.statusCode}`);
+  }
+
+  parts.push(`message=${error.message.slice(0, 300)}`);
+
+  return parts.join(" ");
 }
 
 async function runPool<T, R>(
@@ -279,11 +451,13 @@ function printSummary(results: DispatchResult[]): void {
     const icon =
       result.status === "completed"
         ? "✓"
-        : result.status === "blocked"
-          ? "!"
-          : result.status === "failed"
-            ? "✗"
-            : "⚠";
+        : result.status === "retry_wait"
+          ? "⏳"
+          : result.status === "blocked"
+            ? "!"
+            : result.status === "failed"
+              ? "✗"
+              : "⚠";
 
     console.log(
       `${icon} ${result.taskId.padEnd(14)} ${result.agent.padEnd(10)} ${result.status}`,
@@ -300,6 +474,12 @@ function printSummary(results: DispatchResult[]): void {
       console.log(`    error: ${result.summary}`);
     }
 
+    if (result.diagnostics?.length) {
+      for (const line of result.diagnostics) {
+        console.log(`    diagnostic: ${line}`);
+      }
+    }
+
     if (result.commit) {
       console.log(`    commit: ${result.commit}`);
     }
@@ -314,6 +494,18 @@ async function main(): Promise<void> {
 
     const teamConfig = await loadTeamConfig();
     const execution = resolveExecutionConfig(teamConfig);
+    const providerName = resolveDefaultProviderName(teamConfig);
+    const provider = getExecutionProvider(providerName);
+
+    // Defensive capacity enforcement: even if the scheduler miscounted,
+    // the dispatcher never exceeds provider concurrency.
+    const providerCapacity = provider.getCapacity(teamConfig);
+
+    const dispatchConcurrency = Math.max(
+      1,
+      Math.min(execution.max_parallel_agents, providerCapacity.maxConcurrency),
+    );
+
     const state = await loadState(cli.workflowId);
 
     if (state.status === "completed" || state.status === "cancelled") {
@@ -347,13 +539,12 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `Dispatching ${requests.length} task(s) with isolated Git worktrees...`,
+      `Dispatching ${requests.length} task(s) via provider "${providerName}" ` +
+        `with isolated Git worktrees (concurrency: ${dispatchConcurrency})...`,
     );
 
-    const results = await runPool(
-      requests,
-      execution.max_parallel_agents,
-      executeRequest,
+    const results = await runPool(requests, dispatchConcurrency, (request) =>
+      executeRequest(request, providerName),
     );
 
     printSummary(results);

@@ -6,7 +6,11 @@ import type { RuntimeTask, WorkflowState } from "./lib/types.js";
 
 import { findReadyTasks } from "./lib/task-graph.js";
 
-import { loadTeamConfig, resolveExecutionConfig } from "./lib/team-config.js";
+import {
+  loadTeamConfig,
+  resolveDefaultProviderName,
+  resolveExecutionConfig,
+} from "./lib/team-config.js";
 
 import { writeExecutionRequest } from "./lib/execution-request.js";
 
@@ -20,6 +24,11 @@ import {
 import { routeReadyTasks } from "./lib/scheduler-routing.js";
 
 import { getProviderCapacity } from "./lib/provider-capacity.js";
+
+import {
+  findWaitingRetryTasks,
+  promoteDueRetries,
+} from "./lib/scheduler-retry.js";
 
 type CliOptions = {
   workflowId?: string;
@@ -177,6 +186,7 @@ async function claimTasksAndEmitRequests(
   selected: RuntimeTask[],
   teamConfig: Awaited<ReturnType<typeof loadTeamConfig>>,
   execution: ReturnType<typeof resolveExecutionConfig>,
+  providerName: string,
 ): Promise<string[]> {
   const timestamp = new Date().toISOString();
 
@@ -232,6 +242,7 @@ async function claimTasksAndEmitRequests(
       task,
       teamConfig,
       execution.requests_directory,
+      providerName,
     );
 
     requestFiles.push(requestFile);
@@ -261,7 +272,9 @@ async function main(): Promise<void> {
 
     const execution = resolveExecutionConfig(teamConfig);
 
-    const providerCapacity = getProviderCapacity(teamConfig, "opencode");
+    const providerName = resolveDefaultProviderName(teamConfig);
+
+    const providerCapacity = getProviderCapacity(teamConfig, providerName);
 
     const effectiveParallelism = Math.min(
       execution.max_parallel_agents,
@@ -280,11 +293,20 @@ async function main(): Promise<void> {
 
     const refreshed = cli.dryRun ? state : await loadState(cli.workflowId);
 
+    // Promote due retry_wait tasks back to pending so the normal
+    // ready-task pipeline can claim them. Persisted timestamps make this
+    // safe across process restarts. Dry-run previews in memory only.
+    await promoteDueRetries(refreshed, new Date(), {
+      persist: !cli.dryRun,
+    });
+
     if (refreshed.status === "blocked") {
       console.log("Workflow is blocked. Resolve blocked tasks first.");
 
       return;
     }
+
+    const waitingRetries = findWaitingRetryTasks(refreshed.tasks);
 
     const readyTasks = chooseTasks(refreshed, effectiveParallelism);
 
@@ -296,7 +318,9 @@ async function main(): Promise<void> {
 
     console.log(`Team max parallel: ${execution.max_parallel_agents}`);
 
-    console.log(`OpenCode max concurrency: ${providerCapacity.maxConcurrency}`);
+    console.log(
+      `Provider: ${providerName} (max concurrency: ${providerCapacity.maxConcurrency})`,
+    );
 
     console.log(`Effective parallelism: ${effectiveParallelism}`);
 
@@ -305,6 +329,26 @@ async function main(): Promise<void> {
     console.log(`Max attempts: ${execution.max_attempts}`);
 
     console.log("");
+
+    if (waitingRetries.length) {
+      console.log("Retry waiting:");
+
+      for (const task of waitingRetries) {
+        console.log(`  - ${task.id} [${task.agent}]`);
+        console.log(
+          `    provider: ${task.last_provider_error?.provider ?? providerName}`,
+        );
+        console.log(
+          `    reason: ${task.last_provider_error?.kind ?? "unknown"}`,
+        );
+        console.log(`    retry at: ${task.retry_not_before ?? "<invalid>"}`);
+        console.log(
+          `    attempt: ${task.attempts}/${task.max_attempts ?? execution.max_attempts}`,
+        );
+      }
+
+      console.log("");
+    }
 
     if (routed.some((item) => item.routingDecision)) {
       console.log("Routing:");
@@ -374,6 +418,7 @@ async function main(): Promise<void> {
       selected,
       teamConfig,
       execution,
+      providerName,
     );
 
     console.log("");

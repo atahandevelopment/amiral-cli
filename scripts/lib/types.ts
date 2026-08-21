@@ -10,6 +10,7 @@ export type AgentName =
 export type TaskStatus =
   | "pending"
   | "in_progress"
+  | "retry_wait"
   | "completed"
   | "failed"
   | "blocked"
@@ -65,6 +66,18 @@ export type TaskGraph = {
   tasks: SourceTask[];
 };
 
+/**
+ * Structured diagnostic for the last provider failure observed for a task.
+ * Persisted so retry decisions and diagnostics survive process restarts.
+ */
+export type LastProviderError = {
+  provider: string;
+  kind: string;
+  message: string;
+  retryable: boolean;
+  status_code?: number;
+};
+
 export type RuntimeTask = SourceTask & {
   status: TaskStatus;
   attempts: number;
@@ -79,6 +92,13 @@ export type RuntimeTask = SourceTask & {
   result_file: string | null;
   lease_id?: string | null;
   lease_expires_at?: string | null;
+  /**
+   * Retry scheduling (Phase 13). While status is "retry_wait" the task
+   * becomes eligible again only once this ISO timestamp has passed.
+   * Persisted in workflow state; no in-memory timers are involved.
+   */
+  retry_not_before?: string | null;
+  last_provider_error?: LastProviderError | null;
 };
 
 export type WorkflowState = {
@@ -98,7 +118,10 @@ export type HistoryEventName =
   | "task_result_attached"
   | "task_claimed"
   | "task_retried"
-  | "task_lease_expired";
+  | "task_lease_expired"
+  | "provider_retry_scheduled"
+  | "provider_failure"
+  | "provider_recovered";
 
 export type HistoryEvent = {
   timestamp: string;
@@ -106,4 +129,9 @@ export type HistoryEvent = {
   event: HistoryEventName;
   task_id?: string | null;
   message: string;
+  /**
+   * Optional structured payload (provider, error kind, retryable, attempt,
+   * next retry time) introduced in Phase 13 for observability.
+   */
+  details?: Record<string, unknown>;
 };

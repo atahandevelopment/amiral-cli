@@ -2,10 +2,12 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import spawn from "cross-spawn";
 
 import type { TeamConfig } from "./lib/team-config.js";
-import { loadTeamConfig } from "./lib/team-config.js";
+import {
+  loadTeamConfig,
+  resolveDefaultProviderName,
+} from "./lib/team-config.js";
 import { validateContract } from "./lib/contract-validator.js";
 import {
   loadJson,
@@ -14,6 +16,11 @@ import {
   writeJson,
 } from "./lib/workflow-store.js";
 import { createIntegrationWorkspace } from "./lib/integration.js";
+import { getPromptTransport } from "./lib/providers/provider-registry.js";
+import {
+  classifyProviderFailure,
+  describeProviderError,
+} from "./lib/providers/provider-error.js";
 
 type GateType = "review" | "qa";
 
@@ -42,46 +49,6 @@ type RawQualityGateResult = Omit<QualityGateResult, "findings"> & {
 function fail(message: string): never {
   console.error(`❌ ${message}`);
   process.exit(1);
-}
-
-async function runProcess(
-  command: string,
-  args: string[],
-  cwd: string,
-): Promise<number> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: "inherit",
-    });
-
-    child.on("error", reject);
-
-    child.on("close", (code) => {
-      resolvePromise(code ?? 1);
-    });
-  });
-}
-
-function resolveBinary(config: TeamConfig): string {
-  const root = config as TeamConfig & {
-    opencode?: {
-      binary?: string;
-      auto_approve?: boolean;
-    };
-  };
-
-  return root.opencode?.binary?.trim() || "opencode";
-}
-
-function resolveAutoApprove(config: TeamConfig): boolean {
-  const root = config as TeamConfig & {
-    opencode?: {
-      auto_approve?: boolean;
-    };
-  };
-
-  return root.opencode?.auto_approve === true;
 }
 
 function normalizeSeverity(value: unknown): FindingSeverity {
@@ -343,6 +310,10 @@ async function runGate(
 ): Promise<QualityGateResult> {
   const teamConfig = await loadTeamConfig();
 
+  const providerName = resolveDefaultProviderName(teamConfig);
+
+  const transport = getPromptTransport(providerName);
+
   const integration = await createIntegrationWorkspace(workflowId);
 
   const { promptFile, resultFile } = await writePrompt(
@@ -353,32 +324,31 @@ async function runGate(
 
   const agent = gate === "review" ? "reviewer" : "qa";
 
-  const args = [
-    "run",
-    `Execute the attached ${gate} gate completely and write the required JSON result.`,
-    "--agent",
-    agent,
-    "--dir",
-    integration.worktreePath,
-    "--format",
-    "json",
-    "--file",
-    promptFile,
-  ];
-
-  if (resolveAutoApprove(teamConfig)) {
-    args.push("--auto");
-  }
-
-  const exitCode = await runProcess(
-    resolveBinary(teamConfig),
-    args,
-    integration.worktreePath,
+  console.log(
+    `Running ${gate} gate via provider "${providerName}" (agent: ${agent})...`,
   );
 
-  if (exitCode !== 0) {
+  const outcome = await transport.runPrompt({
+    agent,
+    prompt: buildGatePrompt(workflowId, gate, resultFile),
+    cwd: integration.worktreePath,
+    teamConfig,
+  });
+
+  if (outcome.exitCode !== 0) {
+    const providerError = classifyProviderFailure({
+      provider: providerName,
+      message: `Provider exited with code ${outcome.exitCode} during ${gate} gate.`,
+      exitCode: outcome.exitCode,
+      stderr: outcome.stderr,
+      stdout: outcome.stdout,
+    });
+
     throw new Error(
-      `OpenCode exited with code ${exitCode} during ${gate} gate.`,
+      `${gate} gate failed — ${describeProviderError(providerError)}\n` +
+        (outcome.stderr.trim() ||
+          outcome.stdout.trim() ||
+          "No process output was captured."),
     );
   }
 

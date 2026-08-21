@@ -3,11 +3,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import spawn from "cross-spawn";
 
 import type { WorkflowType } from "./lib/types.js";
-import type { TeamConfig } from "./lib/team-config.js";
-import { loadTeamConfig } from "./lib/team-config.js";
+import {
+  loadTeamConfig,
+  resolveDefaultProviderName,
+} from "./lib/team-config.js";
 import { getKnownCapabilities } from "./lib/capability-scheduler.js";
 import {
   buildPlannerPrompt,
@@ -21,7 +22,12 @@ import {
   analyzeTaskGraph,
   formatTaskGraphAnalysis,
 } from "./lib/task-graph-analysis.js";
-import { extractJsonObject, extractTextEvents } from "./lib/opencode-adapter.js";
+import { extractJsonObject, extractTextEvents } from "./lib/providers/output-extraction.js";
+import { getPromptTransport } from "./lib/providers/provider-registry.js";
+import {
+  classifyProviderFailure,
+  describeProviderError,
+} from "./lib/providers/provider-error.js";
 import { sanitizeSegment } from "./lib/git-worktree.js";
 import { writeJson } from "./lib/workflow-store.js";
 
@@ -110,107 +116,45 @@ function parseArgs(args: string[]): CliOptions {
   return options;
 }
 
-function resolveOpenCodeOptions(config: TeamConfig): {
-  binary: string;
-  autoApprove: boolean;
-  model?: string;
-} {
-  const root = config as TeamConfig & {
-    opencode?: {
-      binary?: string;
-      auto_approve?: boolean;
-    };
-  };
-
-  const model = config.agents?.planner?.model;
-
-  return {
-    binary:
-      typeof root.opencode?.binary === "string" && root.opencode.binary.trim()
-        ? root.opencode.binary.trim()
-        : "opencode",
-    autoApprove: root.opencode?.auto_approve === true,
-    model:
-      typeof model === "string" && model.trim() ? model.trim() : undefined,
-  };
-}
-
-async function runProcess(
-  command: string,
-  args: string[],
-  cwd: string,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout?.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-
-    child.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-
-    child.on("error", reject);
-
-    child.on("close", (code) => {
-      resolvePromise({
-        exitCode: code ?? 1,
-        stdout,
-        stderr,
-      });
-    });
-  });
-}
-
 /**
- * Run the Planner agent through OpenCode and return its raw text output.
+ * Run the Planner agent through the configured execution provider and
+ * return its raw text output.
  */
 async function runPlannerAgent(
-  teamConfig: TeamConfig,
+  teamConfig: Awaited<ReturnType<typeof loadTeamConfig>>,
   prompt: string,
 ): Promise<string> {
-  const options = resolveOpenCodeOptions(teamConfig);
+  const providerName = resolveDefaultProviderName(teamConfig);
 
-  const args = [
-    "run",
+  const transport = getPromptTransport(providerName);
+
+  console.log(`🧠 Running planner agent (provider: ${providerName})...`);
+
+  const outcome = await transport.runPrompt({
+    agent: "planner",
     prompt,
-    "--agent",
-    "planner",
-    "--dir",
-    process.cwd(),
-    "--format",
-    "json",
-  ];
+    cwd: process.cwd(),
+    teamConfig,
+  });
 
-  if (options.model) {
-    args.push("--model", options.model);
-  }
+  if (outcome.exitCode !== 0) {
+    const providerError = classifyProviderFailure({
+      provider: providerName,
+      message: `Provider exited with code ${outcome.exitCode} while planning.`,
+      exitCode: outcome.exitCode,
+      stderr: outcome.stderr,
+      stdout: outcome.stdout,
+    });
 
-  if (options.autoApprove) {
-    args.push("--auto");
-  }
-
-  console.log(`🧠 Running planner agent (${options.binary})...`);
-
-  const result = await runProcess(options.binary, args, process.cwd());
-
-  if (result.exitCode !== 0) {
     throw new Error(
-      `OpenCode exited with code ${result.exitCode} while planning.\n` +
-        (result.stderr.trim() ||
-          result.stdout.trim() ||
+      `Planner failed — ${describeProviderError(providerError)}\n` +
+        (outcome.stderr.trim() ||
+          outcome.stdout.trim() ||
           "No process output was captured."),
     );
   }
 
-  const text = extractTextEvents(result.stdout) || result.stdout;
+  const text = extractTextEvents(outcome.stdout) || outcome.stdout;
 
   if (!text.trim()) {
     throw new Error(

@@ -15,6 +15,11 @@ export type ExecutionRequest = {
   attempt: number;
   max_attempts: number;
   created_at: string;
+  /**
+   * Phase 13: name of the execution provider the scheduler selected for
+   * this request. Optional so existing request files remain valid.
+   */
+  provider?: string;
   context: {
     workflow_type: WorkflowState["workflow_type"];
     dependencies: string[];
@@ -27,6 +32,7 @@ export function createExecutionRequest(
   state: WorkflowState,
   task: RuntimeTask,
   teamConfig: TeamConfig,
+  providerName?: string,
 ): ExecutionRequest {
   if (!task.lease_id) {
     throw new Error(
@@ -54,6 +60,7 @@ export function createExecutionRequest(
     attempt: task.attempts,
     max_attempts: task.max_attempts,
     created_at: new Date().toISOString(),
+    ...(providerName ? { provider: providerName } : {}),
     context: {
       workflow_type: state.workflow_type,
       dependencies: task.dependencies,
@@ -68,8 +75,14 @@ export async function writeExecutionRequest(
   task: RuntimeTask,
   teamConfig: TeamConfig,
   requestsDirectory: string,
+  providerName?: string,
 ): Promise<string> {
-  const request = createExecutionRequest(state, task, teamConfig);
+  const request = createExecutionRequest(
+    state,
+    task,
+    teamConfig,
+    providerName,
+  );
   const relative =
     `tasks/${state.workflow_id}/${requestsDirectory}/${task.id}.json`;
   const absolute = resolve(

@@ -1,34 +1,19 @@
 import type { TeamConfig } from "./team-config.js";
+import { getExecutionProvider } from "./providers/provider-registry.js";
+import type { ProviderCapacity } from "./providers/provider.js";
 
-export type ProviderName = "opencode";
+export type { ProviderCapacity } from "./providers/provider.js";
 
-export type ProviderCapacity = {
-  provider: ProviderName;
-  maxConcurrency: number;
-};
-
+/**
+ * Phase 13 — Capacity resolution now delegates to the provider registry so
+ * capacity logic lives in exactly one place (the provider implementation).
+ *
+ * Kept as a thin wrapper because existing call sites (run-workflow.ts and
+ * tests) use this function signature.
+ */
 export function getProviderCapacity(
   config: TeamConfig,
-  provider: ProviderName,
+  provider: string,
 ): ProviderCapacity {
-  const root = config as TeamConfig & {
-    providers?: {
-      opencode?: {
-        max_concurrency?: number;
-      };
-    };
-  };
-
-  const configured =
-    root.providers?.[provider]?.max_concurrency;
-
-  return {
-    provider,
-    maxConcurrency:
-      typeof configured === "number" &&
-      Number.isFinite(configured) &&
-      configured > 0
-        ? Math.floor(configured)
-        : 1,
-  };
+  return getExecutionProvider(provider).getCapacity(config);
 }

@@ -9,6 +9,7 @@ git:
   keep_branches: true
 
 execution:
+  default_provider: opencode
   max_parallel_agents: 1
   lease_minutes: 30
   max_attempts: 3
@@ -16,11 +17,15 @@ execution:
 
 providers:
   opencode:
+    enabled: true
     max_concurrency: 1
-
-opencode:
-  binary: opencode
-  auto_approve: false
+    binary: opencode
+    auto_approve: false
+    retry:
+      max_attempts: 3
+      base_delay_ms: 2000
+      max_delay_ms: 30000
+      jitter: true
 
 agents:
   lead:
