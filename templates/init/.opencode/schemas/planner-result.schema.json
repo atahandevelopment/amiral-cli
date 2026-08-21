@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/opencode-ai-team/planner-result.schema.json",
+  "title": "Amiral Task Graph Plan (Planner Result)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "goal",
+    "summary",
+    "tasks"
+  ],
+  "properties": {
+    "goal": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow_type": {
+      "type": "string",
+      "enum": [
+        "feature",
+        "bugfix",
+        "refactor"
+      ]
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "https://example.local/opencode-ai-team/task.schema.json"
+      }
+    }
+  }
+}

@@ -1,0 +1,170 @@
+team:
+  name: software-development-team
+
+git:
+  worktree_root: .amiral/worktrees
+  cleanup_completed: true
+  keep_failed: true
+  keep_blocked: true
+  keep_branches: true
+
+execution:
+  default_provider: opencode
+  max_parallel_agents: 1
+  lease_minutes: 30
+  max_attempts: 3
+  requests_directory: requests
+
+providers:
+  opencode:
+    enabled: true
+    max_concurrency: 1
+    binary: opencode
+    auto_approve: false
+    retry:
+      max_attempts: 3
+      base_delay_ms: 2000
+      max_delay_ms: 30000
+      jitter: true
+
+agents:
+  lead:
+    role: orchestrator
+    capabilities:
+      - general/orchestration
+      - general/git
+      - general/clean-code
+    skills:
+      - general/git
+      - general/clean-code
+    routing_priority: 5
+
+  planner:
+    role: planner
+    capabilities:
+      - general/architecture
+      - general/planning
+      - general/task-decomposition
+    skills:
+      - general/architecture
+    routing_priority: 5
+
+  frontend:
+    role: developer
+    capabilities:
+      - frontend/typescript
+      - frontend/react
+      - frontend/nextjs
+      - frontend/tailwind
+      - frontend/storybook
+      - frontend/tanstack-query
+      - frontend/axios
+      - frontend/astro
+      - frontend/angular
+      - frontend/vue
+      - frontend/next-auth
+      - frontend/next-i18next
+      - frontend/next-seo
+      - frontend/next-sitemap
+      - frontend/next-pwa
+      - frontend/shadcn
+      - frontend/next-themes
+      - frontend/material-ui
+      - frontend/ant-design
+      - frontend/accessibility
+    routing_priority: 10
+
+  backend:
+    role: developer
+    capabilities:
+      - backend/typescript
+      - backend/nodejs
+      - backend/nestjs
+      - backend/express
+      - backend/fastify
+      - backend/dotnet
+      - backend/ef-core
+      - backend/rest-api
+      - backend/grpc
+      - backend/graphql
+      - backend/redis
+      - backend/kafka
+      - backend/rabbitmq
+      - backend/docker
+      - backend/kubernetes
+      - backend/aws
+      - backend/azure
+      - backend/elasticsearch
+      - backend/logging
+      - backend/supabase
+      - backend/stripe
+      - backend/prisma
+      - backend/typeorm
+      - backend/mongodb
+      - backend/mysql
+      - backend/postgresql
+      - backend/sqlite
+      - backend/golang
+      - backend/python
+      - backend/java
+      - backend/rust
+      - backend/authentication
+    routing_priority: 10
+
+  database:
+    role: specialist
+    capabilities:
+      - database/postgresql
+      - database/sql
+      - database/migrations
+      - database/schema-design
+      - database/indexing
+      - database/optimization
+      - database/query-analysis
+    routing_priority: 20
+
+  devops:
+    role: specialist
+    capabilities:
+      - devops/docker
+      - devops/ci
+      - devops/cd
+      - devops/github-actions
+      - devops/deployment
+      - devops/kubernetes
+      - devops/azure
+      - devops/aws
+    routing_priority: 10
+
+  reviewer:
+    role: reviewer
+    capabilities:
+      - general/clean-code
+      - general/security
+      - review/code
+      - review/architecture
+      - review/security
+      - review/performance
+    routing_priority: 10
+
+  qa:
+    role: tester
+    capabilities:
+      - testing/unit
+      - testing/integration
+      - testing/e2e
+      - testing/regression
+      - testing/validation
+      - testing/type-check
+      - testing/build
+    routing_priority: 10
+
+workflows:
+  feature:
+    file: .opencode/workflows/feature.md
+
+  bugfix:
+    file: .opencode/workflows/bugfix.md
+
+  refactor:
+    file: .opencode/workflows/refactor.md

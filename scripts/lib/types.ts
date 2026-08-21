@@ -114,6 +114,7 @@ export type WorkflowState = {
 export type HistoryEventName =
   | "workflow_created"
   | "workflow_status_changed"
+  | "workflow_cancelled"
   | "task_status_changed"
   | "task_result_attached"
   | "task_claimed"

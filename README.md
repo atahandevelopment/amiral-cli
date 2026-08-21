@@ -6,6 +6,49 @@ This repository defines a reusable AI engineering workflow in which a **Lead Age
 
 The goal is to make AI-assisted software development behave more like a structured engineering team than a single coding assistant.
 
+## Product quick start
+
+```bash
+npm install
+npm run build
+npm link
+amiral --version
+amiral --help
+
+# In a Git project:
+amiral init --minimal
+amiral plan "Add authentication" --type feature
+amiral run --plan <plan-id>
+amiral status
+```
+
+Amiral is a persistent, dependency-aware orchestration CLI. It can be invoked from the project root or any nested directory (including paths with spaces); it discovers `team.yaml` by walking upward.
+
+| Command | Purpose |
+| --- | --- |
+| `init` | Safely install Amiral templates |
+| `plan` | Create/validate a task graph, online or from `--plan-file` |
+| `run` | Plan and run, run a saved plan, or resume a workflow |
+| `status` | Show workflow/task/retry/provider status |
+| `workflow` | List, select, inspect, cancel, reset, and view history |
+| `retry` | Retry one task or failed/blocked task sets |
+| `review` / `qa` | Run standalone quality gates |
+| `clean` | Preview or perform conservative worktree cleanup |
+| `doctor` | Diagnose project, Git, provider, and runtime health |
+| `config` | Locate, show redacted, or validate configuration |
+
+`run` performs planning → persistent workflow creation → dependency-aware scheduling/provider execution → integration → review/fix rounds → QA. It stops safely on completion, failure/blocking, retry wait, required input, no progress, review-round limit, or interruption; rerunning resumes persisted state.
+
+Automation receives uncontaminated JSON:
+
+```bash
+amiral status --json > status.json
+amiral doctor --json > doctor.json
+amiral config show --json > config.json  # secrets are redacted
+```
+
+The historical `scripts/*.ts` commands remain backward-compatible internal entry points. See [Phase 14 — CLI Productization](PHASE14_CLI_PRODUCTIZATION.md) for complete command, locking, signal, output, packaging, and platform behavior.
+
 ---
 
 ## Overview
@@ -1058,11 +1101,11 @@ QA = PASS
 
 ## Current Limitations
 
-This repository currently provides a strong **agent specification and orchestration protocol**, but it is not yet a standalone orchestration runtime.
+This repository provides both the agent specification and a standalone, persistent orchestration runtime through the `amiral` CLI.
 
-### Empty Runtime Scripts
+### Runtime and legacy scripts
 
-The following files currently exist but are empty:
+The runtime scripts are implemented and remain available as backward-compatible wrappers:
 
 ```text
 scripts/start-team.ts
@@ -1071,7 +1114,7 @@ scripts/run-workflow.ts
 scripts/validate-team.ts
 ```
 
-As a result, there is currently no separate TypeScript runtime that executes the task graph outside OpenCode's native agent/task capabilities.
+Product usage should prefer `amiral`; scripts remain useful for compatibility and focused diagnostics.
 
 ---
 
@@ -1092,11 +1135,11 @@ The active workflow definitions are currently:
 
 ---
 
-### Task State Is Conceptual
+### Persistent task state
 
-Task state is currently maintained conceptually by the Lead during the active agent session.
+Task and workflow state is persisted under `tasks/`, with plans and integration artifacts stored in their corresponding local runtime directories.
 
-There is no persistent runtime state such as:
+Persistent runtime files include:
 
 ```text
 tasks.json
@@ -1104,19 +1147,19 @@ workflow-state.json
 SQLite
 ```
 
-This could become important for very long-running workflows or workflows that need to recover after a session interruption.
+This supports status inspection, retries, and recovery after interruption.
 
 ---
 
 ### `team.yaml` Is Declarative Metadata
 
-`team.yaml` defines team roles, skills, and workflow file mappings, but there is currently no executable runtime that parses it and dynamically builds a scheduler from the configuration.
+`team.yaml` is parsed by the executable runtime for agents, providers, scheduling, retry, and quality-gate configuration.
 
 ---
 
-## Suggested Runtime Evolution
+## Runtime Architecture
 
-A future version could introduce a persistent execution layer:
+The persistent execution layer now follows this flow:
 
 ```text
 User
@@ -1144,12 +1187,12 @@ Task Scheduler
       Workflow Result
 ```
 
-For example:
+Runtime state is local and gitignored:
 
 ```text
-.opencode/runtime/
-├── tasks.json
+tasks/<workflow-id>/
 ├── state.json
+├── task-graph.json
 └── history.json
 ```
 
@@ -1167,7 +1210,7 @@ A possible workflow state:
 }
 ```
 
-This would allow workflows to resume after interrupted sessions and make execution state explicit.
+This allows workflows to resume after interrupted sessions and makes execution state explicit.
 
 ---
 
@@ -1223,7 +1266,7 @@ The repository can be described as:
 
 > A dependency-aware, role-based multi-agent software development team specification for OpenCode with planning, specialized implementation, review, QA, policy enforcement, and structured task contracts.
 
-It is currently best viewed as an **AI engineering team specification and workflow layer**, rather than a standalone orchestration framework.
+It combines an **AI engineering team specification** with an installable orchestration CLI and persistent workflow runtime.
 
 Its intended architecture is:
 
@@ -1271,17 +1314,10 @@ Its intended architecture is:
 
 Potential future improvements:
 
-- Implement `start-team.ts`
-- Implement `assign-task.ts`
-- Implement `run-workflow.ts`
-- Implement `validate-team.ts`
-- Add persistent workflow state
-- Add automatic task graph validation
-- Add cycle detection for dependencies
-- Add concurrency limits
-- Add agent execution history
+- Add a web dashboard and remote control
+- Add distributed and multi-user coordination
+- Add more execution providers and provider load balancing
 - Add token/cost tracking
-- Complete the code review workflow
 - Complete the release workflow
 - Add CI validation for agent definitions
 - Add JSON Schema validation for task contracts

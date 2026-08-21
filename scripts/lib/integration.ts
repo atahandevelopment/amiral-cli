@@ -117,6 +117,23 @@ export async function mergeTaskBranch(
   );
 }
 
+/**
+ * True when the task branch is already an ancestor of the integration
+ * worktree HEAD, i.e. merging it again would be a no-op. Used to keep the
+ * integration phase idempotent across repeated orchestrator rounds.
+ */
+export async function isBranchMerged(
+  integrationWorktree: string,
+  taskBranch: string,
+): Promise<boolean> {
+  const result = await runGit(
+    ["merge-base", "--is-ancestor", taskBranch, "HEAD"],
+    integrationWorktree,
+  );
+
+  return result.code === 0;
+}
+
 export async function getIntegrationStatus(
   integrationWorktree: string,
 ): Promise<string> {

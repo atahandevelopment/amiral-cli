@@ -1,34 +1,10 @@
 #!/usr/bin/env node
 
-import { randomUUID } from "node:crypto";
+import type { WorkflowState } from "./lib/types.js";
 
-import type { RuntimeTask, WorkflowState } from "./lib/types.js";
+import { loadState } from "./lib/workflow-store.js";
 
-import { findReadyTasks } from "./lib/task-graph.js";
-
-import {
-  loadTeamConfig,
-  resolveDefaultProviderName,
-  resolveExecutionConfig,
-} from "./lib/team-config.js";
-
-import { writeExecutionRequest } from "./lib/execution-request.js";
-
-import {
-  appendHistory,
-  deriveWorkflowStatus,
-  loadState,
-  saveState,
-} from "./lib/workflow-store.js";
-
-import { routeReadyTasks } from "./lib/scheduler-routing.js";
-
-import { getProviderCapacity } from "./lib/provider-capacity.js";
-
-import {
-  findWaitingRetryTasks,
-  promoteDueRetries,
-} from "./lib/scheduler-retry.js";
+import { scheduleOnce } from "./lib/scheduling-service.js";
 
 type CliOptions = {
   workflowId?: string;
@@ -75,305 +51,95 @@ function parseArgs(args: string[]): CliOptions {
   };
 }
 
-function leaseExpiration(minutes: number): string {
-  return new Date(Date.now() + minutes * 60_000).toISOString();
-}
-
-function isLeaseExpired(task: RuntimeTask): boolean {
-  if (task.status !== "in_progress") {
-    return false;
-  }
-
-  if (!task.lease_expires_at) {
-    return true;
-  }
-
-  return Date.parse(task.lease_expires_at) <= Date.now();
-}
-
-function getRunningTasks(state: WorkflowState): RuntimeTask[] {
-  return state.tasks.filter(
-    (task) => task.status === "in_progress" && !isLeaseExpired(task),
-  );
-}
-
-async function recoverExpiredLeases(
-  state: WorkflowState,
-  defaultMaxAttempts: number,
-  dryRun: boolean,
-): Promise<void> {
-  const expired = state.tasks.filter(isLeaseExpired);
-
-  if (!expired.length) {
-    return;
-  }
-
-  const timestamp = new Date().toISOString();
-
-  for (const task of expired) {
-    const maxAttempts = task.max_attempts || defaultMaxAttempts;
-
-    console.log(
-      `⚠️ Expired lease: ${task.id} ` +
-        `(attempt ${task.attempts}/${maxAttempts})`,
-    );
-
-    if (dryRun) {
-      continue;
-    }
-
-    await appendHistory({
-      timestamp,
-      workflow_id: state.workflow_id,
-      event: "task_lease_expired",
-      task_id: task.id,
-      message: `Lease ${task.lease_id ?? "<missing>"} expired.`,
-    });
-
-    task.lease_id = null;
-    task.lease_expires_at = null;
-    task.started_at = null;
-
-    if (task.attempts >= maxAttempts) {
-      task.status = "blocked";
-
-      task.last_error =
-        `Maximum retry attempts reached after lease expiration ` +
-        `(${maxAttempts}).`;
-
-      await appendHistory({
-        timestamp,
-        workflow_id: state.workflow_id,
-        event: "task_status_changed",
-        task_id: task.id,
-        message:
-          `in_progress -> blocked: max attempts reached ` + `(${maxAttempts})`,
-      });
-    } else {
-      task.status = "pending";
-
-      task.last_error = "Previous execution lease expired.";
-
-      await appendHistory({
-        timestamp,
-        workflow_id: state.workflow_id,
-        event: "task_retried",
-        task_id: task.id,
-        message: "Lease expired; task returned to pending for retry.",
-      });
-    }
-  }
-
-  state.status = deriveWorkflowStatus(state);
-
-  await saveState(state);
-}
-
-function chooseTasks(state: WorkflowState, maxParallel: number): RuntimeTask[] {
-  const running = getRunningTasks(state);
-
-  const slots = Math.max(0, maxParallel - running.length);
-
-  if (!slots) {
-    return [];
-  }
-
-  return findReadyTasks(state.tasks).slice(0, slots);
-}
-
-async function claimTasksAndEmitRequests(
-  state: WorkflowState,
-  selected: RuntimeTask[],
-  teamConfig: Awaited<ReturnType<typeof loadTeamConfig>>,
-  execution: ReturnType<typeof resolveExecutionConfig>,
-  providerName: string,
-): Promise<string[]> {
-  const timestamp = new Date().toISOString();
-
-  const previousWorkflowStatus = state.status;
-
-  const requestFiles: string[] = [];
-
-  for (const selectedTask of selected) {
-    const task = state.tasks.find((item) => item.id === selectedTask.id);
-
-    if (!task || task.status !== "pending") {
-      throw new Error(
-        `Task "${selectedTask.id}" changed before scheduler claim.`,
-      );
-    }
-
-    task.max_attempts ||= execution.max_attempts;
-
-    if (task.attempts >= task.max_attempts) {
-      task.status = "blocked";
-
-      task.last_error = `Maximum attempts reached ` + `(${task.max_attempts}).`;
-
-      continue;
-    }
-
-    task.status = "in_progress";
-
-    task.started_at = timestamp;
-
-    task.completed_at = null;
-
-    task.attempts += 1;
-
-    task.last_error = null;
-
-    task.lease_id = randomUUID();
-
-    task.lease_expires_at = leaseExpiration(execution.lease_minutes);
-
-    await appendHistory({
-      timestamp,
-      workflow_id: state.workflow_id,
-      event: "task_claimed",
-      task_id: task.id,
-      message:
-        `Task claimed with lease ${task.lease_id}; ` +
-        `attempt ${task.attempts}/${task.max_attempts}.`,
-    });
-
-    const requestFile = await writeExecutionRequest(
-      state,
-      task,
-      teamConfig,
-      execution.requests_directory,
-      providerName,
-    );
-
-    requestFiles.push(requestFile);
-  }
-
-  state.status = deriveWorkflowStatus(state);
-
-  await saveState(state);
-
-  if (previousWorkflowStatus !== state.status) {
-    await appendHistory({
-      timestamp,
-      workflow_id: state.workflow_id,
-      event: "workflow_status_changed",
-      message: `${previousWorkflowStatus} -> ${state.status}`,
-    });
-  }
-
-  return requestFiles;
-}
-
 async function main(): Promise<void> {
   const cli = parseArgs(process.argv.slice(2));
 
   try {
-    const teamConfig = await loadTeamConfig();
+    const state: WorkflowState = await loadState(cli.workflowId);
 
-    const execution = resolveExecutionConfig(teamConfig);
+    const result = await scheduleOnce({
+      state,
+      dryRun: cli.dryRun,
+    });
 
-    const providerName = resolveDefaultProviderName(teamConfig);
-
-    const providerCapacity = getProviderCapacity(teamConfig, providerName);
-
-    const effectiveParallelism = Math.min(
-      execution.max_parallel_agents,
-      providerCapacity.maxConcurrency,
-    );
-
-    const state = await loadState(cli.workflowId);
-
-    if (state.status === "completed" || state.status === "cancelled") {
-      fail(
-        `Workflow "${state.workflow_id}" cannot be scheduled (${state.status}).`,
+    for (const lease of result.expiredLeases) {
+      console.log(
+        `⚠️ Expired lease: ${lease.taskId} ` +
+          `(attempt ${lease.attempts}/${lease.maxAttempts})`,
       );
     }
 
-    await recoverExpiredLeases(state, execution.max_attempts, cli.dryRun);
-
-    const refreshed = cli.dryRun ? state : await loadState(cli.workflowId);
-
-    // Promote due retry_wait tasks back to pending so the normal
-    // ready-task pipeline can claim them. Persisted timestamps make this
-    // safe across process restarts. Dry-run previews in memory only.
-    await promoteDueRetries(refreshed, new Date(), {
-      persist: !cli.dryRun,
-    });
-
-    if (refreshed.status === "blocked") {
+    if (result.blocked) {
       console.log("Workflow is blocked. Resolve blocked tasks first.");
 
       return;
     }
 
-    const waitingRetries = findWaitingRetryTasks(refreshed.tasks);
+    console.log(`Workflow: ${result.workflowId}`);
 
-    const readyTasks = chooseTasks(refreshed, effectiveParallelism);
-
-    const routed = routeReadyTasks(readyTasks, refreshed, teamConfig);
-
-    const selected = routed.map((item) => item.task);
-
-    console.log(`Workflow: ${refreshed.workflow_id}`);
-
-    console.log(`Team max parallel: ${execution.max_parallel_agents}`);
+    console.log(`Team max parallel: ${result.teamMaxParallel}`);
 
     console.log(
-      `Provider: ${providerName} (max concurrency: ${providerCapacity.maxConcurrency})`,
+      `Provider: ${result.providerName} (max concurrency: ${result.providerMaxConcurrency})`,
     );
 
-    console.log(`Effective parallelism: ${effectiveParallelism}`);
+    console.log(`Effective parallelism: ${result.effectiveParallelism}`);
 
-    console.log(`Lease: ${execution.lease_minutes} minute(s)`);
+    console.log(`Lease: ${result.leaseMinutes} minute(s)`);
 
-    console.log(`Max attempts: ${execution.max_attempts}`);
+    console.log(`Max attempts: ${result.maxAttempts}`);
 
     console.log("");
 
-    if (waitingRetries.length) {
+    if (result.waitingRetries.length) {
       console.log("Retry waiting:");
 
-      for (const task of waitingRetries) {
-        console.log(`  - ${task.id} [${task.agent}]`);
+      for (const task of result.waitingRetries) {
+        console.log(`  - ${task.taskId} [${task.agent}]`);
+        console.log(`    provider: ${task.provider ?? result.providerName}`);
+        console.log(`    reason: ${task.kind ?? "unknown"}`);
+        console.log(`    retry at: ${task.retryAt ?? "<invalid>"}`);
         console.log(
-          `    provider: ${task.last_provider_error?.provider ?? providerName}`,
-        );
-        console.log(
-          `    reason: ${task.last_provider_error?.kind ?? "unknown"}`,
-        );
-        console.log(`    retry at: ${task.retry_not_before ?? "<invalid>"}`);
-        console.log(
-          `    attempt: ${task.attempts}/${task.max_attempts ?? execution.max_attempts}`,
+          `    attempt: ${task.attempts}/${task.maxAttempts ?? result.maxAttempts}`,
         );
       }
 
       console.log("");
     }
 
-    if (routed.some((item) => item.routingDecision)) {
+    if (result.routingDecisions.length) {
       console.log("Routing:");
 
-      for (const item of routed) {
-        if (!item.routingDecision) {
-          continue;
-        }
-
+      for (const decision of result.routingDecisions) {
         console.log(
-          `  ${item.task.id}: ` +
-            `${item.routingDecision.previousAgent} -> ` +
-            `${item.routingDecision.selectedAgent}`,
+          `  ${decision.taskId}: ` +
+            `${decision.previousAgent} -> ` +
+            `${decision.selectedAgent}`,
         );
 
         console.log(
           `    capabilities: ` +
-            `${item.routingDecision.matchedCapabilities.join(", ")}`,
+            `${decision.matchedCapabilities.join(", ")}`,
         );
       }
 
       console.log("");
     }
 
-    if (!selected.length) {
+    if (result.conflictHolds.length) {
+      console.log("Conflict holds:");
+
+      for (const hold of result.conflictHolds) {
+        console.log(
+          `  - ${hold.taskId} held by ${hold.againstTaskId} ` +
+            `(domain: ${hold.domain})`,
+        );
+      }
+
+      console.log("");
+    }
+
+    if (!result.claims.length) {
       console.log("No tasks selected.");
 
       return;
@@ -381,8 +147,8 @@ async function main(): Promise<void> {
 
     console.log("Selected tasks:");
 
-    for (const task of selected) {
-      console.log(`  - ${task.id} [${task.agent}] ${task.title}`);
+    for (const claim of result.claims) {
+      console.log(`  - ${claim.taskId} [${claim.agent}] ${claim.title}`);
     }
 
     if (cli.dryRun) {
@@ -392,42 +158,13 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Persist routed concrete agent before requests are generated.
-    await saveState(refreshed);
-
-    for (const item of routed) {
-      if (!item.routingDecision) {
-        continue;
-      }
-
-      await appendHistory({
-        timestamp: new Date().toISOString(),
-        workflow_id: refreshed.workflow_id,
-        event: "task_status_changed",
-        task_id: item.task.id,
-        message:
-          `capability routing: ` +
-          `${item.routingDecision.previousAgent} -> ` +
-          `${item.routingDecision.selectedAgent}; ` +
-          `required=[${item.routingDecision.requiredCapabilities.join(", ")}]`,
-      });
-    }
-
-    const requestFiles = await claimTasksAndEmitRequests(
-      refreshed,
-      selected,
-      teamConfig,
-      execution,
-      providerName,
-    );
-
     console.log("");
-    console.log(`✅ Claimed ${requestFiles.length} task(s).`);
+    console.log(`✅ Claimed ${result.claims.length} task(s).`);
 
     console.log("Execution requests:");
 
-    for (const file of requestFiles) {
-      console.log(`  - ${file}`);
+    for (const claim of result.claims) {
+      console.log(`  - ${claim.requestFile}`);
     }
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));

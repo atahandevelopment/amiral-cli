@@ -66,6 +66,17 @@ export type LegacyProviderSection = {
   auto_approve?: boolean;
 };
 
+/**
+ * Phase 14 — Optional quality-gate loop configuration.
+ */
+export type RawQualityConfig = {
+  max_review_rounds?: number;
+};
+
+export type QualityConfig = {
+  max_review_rounds: number;
+};
+
 export type TeamConfig = {
   team?: {
     name?: string;
@@ -75,6 +86,8 @@ export type TeamConfig = {
   providers?: Record<string, RawTeamProviderConfig>;
   /** Legacy root-level OpenCode section; superseded by providers.opencode. */
   opencode?: LegacyProviderSection;
+  /** Phase 14 — optional quality-gate loop settings. */
+  quality?: RawQualityConfig;
 };
 
 const DEFAULT_EXECUTION: TeamExecutionConfig = {
@@ -259,4 +272,31 @@ export function getAgentSkills(
   return Array.isArray(skills)
     ? skills.filter((skill): skill is string => typeof skill === "string")
     : [];
+}
+
+const DEFAULT_QUALITY: QualityConfig = {
+  max_review_rounds: 3,
+};
+
+/**
+ * Phase 14 — Resolve the quality-gate loop configuration.
+ *
+ * `quality.max_review_rounds` defaults to 3 and must be a positive integer
+ * when provided. Additive: team.yaml files without a `quality:` section
+ * keep working unchanged.
+ */
+export function resolveQualityConfig(config: TeamConfig): QualityConfig {
+  const value = config.quality?.max_review_rounds;
+
+  if (value === undefined) {
+    return { ...DEFAULT_QUALITY };
+  }
+
+  if (!Number.isInteger(value) || Number(value) < 1) {
+    throw new Error(
+      "team.yaml: quality.max_review_rounds must be a positive integer.",
+    );
+  }
+
+  return { max_review_rounds: Number(value) };
 }

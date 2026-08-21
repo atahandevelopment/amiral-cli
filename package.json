@@ -1,5 +1,21 @@
 {
+  "name": "amiral-cli",
+  "version": "1.0.0",
+  "description": "Dependency-aware multi-agent workflow CLI for OpenCode.",
+  "bin": {
+    "amiral": "dist/src/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "PHASE14_CLI_PRODUCTIZATION.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "validate:team": "tsx scripts/validate-team.ts",
     "typecheck": "tsc -p tsconfig.typecheck.json",
     "test": "node --import tsx --test \"tests/*.test.ts\""
@@ -7,26 +23,25 @@
   "devDependencies": {
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.2.0",
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
-    "cross-spawn": "^7.0.6",
+    "@types/proper-lockfile": "^4.1.4",
     "tsx": "^4.23.12",
-    "typescript": "^5.9.3",
-    "yaml": "^2.9.0"
+    "typescript": "^5.9.3"
   },
-  "name": "amiral/cli",
-  "version": "1.0.0",
-  "description": "A role-based, dependency-aware multi-agent software development team for [OpenCode](https://opencode.ai/).",
-  "main": "index.js",
   "directories": {
     "example": "examples"
   },
   "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^14.0.3",
+    "cross-spawn": "^7.0.6",
     "esbuild": "^0.28.2",
     "fast-deep-equal": "^3.1.3",
     "fast-uri": "^3.1.5",
     "json-schema-traverse": "^1.0.0",
-    "require-from-string": "^2.0.2"
+    "proper-lockfile": "^4.1.2",
+    "require-from-string": "^2.0.2",
+    "yaml": "^2.9.0"
   },
   "repository": {
     "type": "git",
