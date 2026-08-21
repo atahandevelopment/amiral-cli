@@ -317,16 +317,6 @@ export async function executeWithOpenCode(
     );
   }
 
-  let result: AgentResult;
-
-  try {
-    result = await loadJson<AgentResult>(localResultPath);
-  } catch {
-    throw new Error(
-      `Agent finished but did not produce a readable result file at "${localResultPath}".`,
-    );
-  }
-
   function normalizeAgentResult(result: AgentResult): AgentResult {
     if (!Array.isArray(result.tests)) {
       return result;
@@ -436,10 +426,9 @@ export async function executeWithOpenCode(
     }
   }
 
-  result = await readAgentResult(localResultPath, processResult.stdout);
-  result = await loadJson<AgentResult>(localResultPath);
-  result = normalizeAgentResult(result);
+  let result = await readAgentResult(localResultPath, processResult.stdout);
 
+  result = normalizeAgentResult(result);
   await validateContract("agent-result", result);
 
   if (result.workflow_id !== request.workflow_id) {
