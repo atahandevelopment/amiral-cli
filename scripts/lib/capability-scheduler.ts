@@ -1,11 +1,7 @@
-import type { AgentName, WorkflowState } from "./types.js";
+import type { AgentName, CapabilityRouting, WorkflowState } from "./types.js";
 import type { TeamConfig } from "./team-config.js";
 
-export type CapabilityRouting = {
-  mode: "fixed" | "auto";
-  required_capabilities?: string[];
-  preferred_agents?: AgentName[];
-};
+export type { CapabilityRouting } from "./types.js";
 
 export type CapabilityAwareTask = WorkflowState["tasks"][number] & {
   routing?: CapabilityRouting;
@@ -55,6 +51,18 @@ function readAgentProfiles(config: TeamConfig): AgentCapabilityProfile[] {
           : 0,
     }];
   });
+}
+
+export function getKnownCapabilities(config: TeamConfig): string[] {
+  const known = new Set<string>();
+
+  for (const profile of readAgentProfiles(config)) {
+    for (const capability of profile.capabilities) {
+      known.add(capability);
+    }
+  }
+
+  return [...known].sort((left, right) => left.localeCompare(right));
 }
 
 function scoreProfile(

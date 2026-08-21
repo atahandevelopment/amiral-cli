@@ -257,6 +257,82 @@ async function runProcess(
   });
 }
 
+/**
+ * Extract the final assistant text from OpenCode JSON event output.
+ * Non-JSON log lines are ignored.
+ */
+export function extractTextEvents(stdout: string): string {
+  const texts: string[] = [];
+
+  for (const line of stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const event = JSON.parse(trimmed) as {
+        type?: string;
+        part?: {
+          type?: string;
+          text?: string;
+        };
+      };
+
+      if (
+        event.type === "text" &&
+        event.part?.type === "text" &&
+        typeof event.part.text === "string"
+      ) {
+        texts.push(event.part.text);
+      }
+    } catch {
+      // OpenCode'un JSON olmayan loglarını görmezden gel.
+    }
+  }
+
+  return texts.join("\n").trim();
+}
+
+/**
+ * Extract the first JSON object from provider text output.
+ *
+ * Handles fenced code blocks and raw or embedded JSON objects.
+ */
+export function extractJsonObject<T = unknown>(text: string): T | null {
+  if (!text) {
+    return null;
+  }
+
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+
+  const candidates = [fenced?.[1]?.trim(), text.trim()].filter(
+    (value): value is string => Boolean(value),
+  );
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as T;
+    } catch {
+      // devam
+    }
+
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(candidate.slice(start, end + 1)) as T;
+      } catch {
+        // devam
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function executeWithOpenCode(
   request: ExecutionRequest,
   teamConfig: TeamConfig,
@@ -336,40 +412,6 @@ export async function executeWithOpenCode(
     return result;
   }
 
-  function extractTextEvents(stdout: string): string {
-    const texts: string[] = [];
-
-    for (const line of stdout.split(/\r?\n/)) {
-      const trimmed = line.trim();
-
-      if (!trimmed) {
-        continue;
-      }
-
-      try {
-        const event = JSON.parse(trimmed) as {
-          type?: string;
-          part?: {
-            type?: string;
-            text?: string;
-          };
-        };
-
-        if (
-          event.type === "text" &&
-          event.part?.type === "text" &&
-          typeof event.part.text === "string"
-        ) {
-          texts.push(event.part.text);
-        }
-      } catch {
-        // OpenCode'un JSON olmayan loglarını görmezden gel.
-      }
-    }
-
-    return texts.join("\n").trim();
-  }
-
   async function createProtocolFailureResult(
     request: ExecutionRequest,
     stdout: string,
@@ -411,39 +453,6 @@ export async function executeWithOpenCode(
     };
   }
 
-  function extractJsonObject(text: string): AgentResult | null {
-    if (!text) {
-      return null;
-    }
-
-    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-
-    const candidates = [fenced?.[1]?.trim(), text.trim()].filter(
-      (value): value is string => Boolean(value),
-    );
-
-    for (const candidate of candidates) {
-      try {
-        return JSON.parse(candidate) as AgentResult;
-      } catch {
-        // devam
-      }
-
-      const start = candidate.indexOf("{");
-      const end = candidate.lastIndexOf("}");
-
-      if (start >= 0 && end > start) {
-        try {
-          return JSON.parse(candidate.slice(start, end + 1)) as AgentResult;
-        } catch {
-          // devam
-        }
-      }
-    }
-
-    return null;
-  }
-
   async function readAgentResult(
     request: ExecutionRequest,
     localResultPath: string,
@@ -454,7 +463,7 @@ export async function executeWithOpenCode(
     } catch {
       const finalText = extractTextEvents(stdout);
 
-      const recovered = extractJsonObject(finalText);
+      const recovered = extractJsonObject<AgentResult>(finalText);
 
       if (recovered) {
         await writeJson(localResultPath, recovered);

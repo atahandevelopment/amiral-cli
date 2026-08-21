@@ -11,7 +11,7 @@ export type WorktreeInfo = {
   worktreePath: string;
 };
 
-function sanitizeSegment(value: string): string {
+export function sanitizeSegment(value: string): string {
   return value
     .trim()
     .toLowerCase()

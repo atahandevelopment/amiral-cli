@@ -12,7 +12,20 @@ const SCHEMAS = {
     ".opencode/schemas/execution-request.schema.json",
   ),
   "quality-gate": resolve(ROOT, ".opencode/schemas/quality-gate.schema.json"),
+  "planner-result": resolve(
+    ROOT,
+    ".opencode/schemas/planner-result.schema.json",
+  ),
 } as const;
+
+// Schemas that reference other schemas via $id must be compiled
+// together with their dependencies.
+const SCHEMA_DEPENDENCIES: Record<SchemaName, string[]> = {
+  "agent-result": [],
+  "execution-request": [],
+  "quality-gate": [],
+  "planner-result": [resolve(ROOT, ".opencode/schemas/task.schema.json")],
+};
 
 type SchemaName = keyof typeof SCHEMAS;
 
@@ -33,9 +46,12 @@ export async function validateContract(
   schemaName: SchemaName,
   value: unknown,
 ): Promise<void> {
-  const schema = JSON.parse(
-    await readFile(SCHEMAS[schemaName], "utf8"),
-  ) as object;
+  const dependencyFiles = SCHEMA_DEPENDENCIES[schemaName] ?? [];
+
+  const [schema, ...dependencySchemas] = await Promise.all([
+    readFile(SCHEMAS[schemaName], "utf8"),
+    ...dependencyFiles.map((file) => readFile(file, "utf8")),
+  ]);
 
   const ajv = new Ajv2020({
     allErrors: true,
@@ -44,7 +60,11 @@ export async function validateContract(
 
   addFormats(ajv);
 
-  const validate = ajv.compile(schema);
+  for (const dependencySchema of dependencySchemas) {
+    ajv.addSchema(JSON.parse(dependencySchema));
+  }
+
+  const validate = ajv.compile(JSON.parse(schema));
 
   if (!validate(value)) {
     throw new Error(

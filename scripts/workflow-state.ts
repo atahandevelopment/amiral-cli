@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 import type {
   RuntimeTask,
   TaskGraph,
@@ -11,20 +9,20 @@ import type {
   WorkflowType,
 } from "./lib/types.js";
 import { findReadyTasks } from "./lib/task-graph.js";
+import { loadTeamConfig } from "./lib/team-config.js";
+import { loadTaskGraphFromPlanFile } from "./lib/task-graph-planner.js";
+import { createWorkflowFromGraph } from "./lib/workflow-create.js";
 import {
   appendHistory,
   deriveWorkflowStatus,
   getActiveWorkflowId,
-  graphFile,
   listWorkflowIds,
   loadJson,
   loadState,
-  resultsDir,
   saveState,
   setActiveWorkflowId,
   stateFile,
   workflowExists,
-  writeJson,
 } from "./lib/workflow-store.js";
 
 const ROOT = process.cwd();
@@ -47,44 +45,41 @@ async function createWorkflow(
 ): Promise<void> {
   const graph = await loadJson<TaskGraph>(resolve(ROOT, taskGraphPath));
 
-  if (!Array.isArray(graph.tasks) || graph.tasks.length === 0) {
-    fail("Task graph must contain at least one task.");
-  }
-
-  const workflowId = `${name?.trim() || type}-${randomUUID().slice(0, 8)}`;
-  const timestamp = new Date().toISOString();
-
-  const state: WorkflowState = {
-    workflow_id: workflowId,
-    workflow_type: type,
-    status: "planned",
-    created_at: timestamp,
-    updated_at: timestamp,
-    source_graph: taskGraphPath,
-    tasks: graph.tasks.map((task) => ({
-      ...task,
-      status: "pending",
-      attempts: 0,
-      started_at: null,
-      completed_at: null,
-      last_error: null,
-      result_file: null,
-    })),
-  };
-
-  await mkdir(resultsDir(workflowId), { recursive: true });
-  await writeJson(graphFile(workflowId), graph);
-  await saveState(state);
-  await writeJson(resolve("tasks", workflowId, "history.json"), []);
-  await appendHistory({
-    timestamp,
-    workflow_id: workflowId,
-    event: "workflow_created",
-    message: `Workflow created with ${state.tasks.length} tasks.`,
+  const state = await createWorkflowFromGraph({
+    type,
+    graph,
+    graphSource: taskGraphPath,
+    name,
   });
-  await setActiveWorkflowId(workflowId);
 
-  console.log(`✅ Workflow created: ${workflowId}`);
+  console.log(`✅ Workflow created: ${state.workflow_id}`);
+}
+
+async function createWorkflowFromPlan(
+  planPath: string,
+  name?: string,
+  typeOverride?: WorkflowType,
+): Promise<void> {
+  const teamConfig = await loadTeamConfig();
+
+  const { graph, plan } = await loadTaskGraphFromPlanFile(planPath, {
+    teamConfig,
+  });
+
+  const type: WorkflowType =
+    typeOverride ?? plan?.workflow_type ?? "feature";
+
+  const state = await createWorkflowFromGraph({
+    type,
+    graph,
+    graphSource: planPath,
+    name,
+  });
+
+  console.log(
+    `✅ Workflow created from plan: ${state.workflow_id} ` +
+      `(${state.tasks.length} tasks, routing and planning metadata preserved)`,
+  );
 }
 
 async function showStatus(workflowId?: string): Promise<void> {
@@ -230,6 +225,7 @@ function usage(): never {
     `
 Usage:
   npx tsx scripts/workflow-state.ts create <feature|bugfix|refactor> <task-graph.json> [name]
+  npx tsx scripts/workflow-state.ts create-from-plan <plan-file> [name] [--type <feature|bugfix|refactor>]
   npx tsx scripts/workflow-state.ts list
   npx tsx scripts/workflow-state.ts use <workflow-id>
   npx tsx scripts/workflow-state.ts status [workflow-id]
@@ -260,6 +256,37 @@ async function main(): Promise<void> {
           usage();
         }
         await createWorkflow(type as WorkflowType, graph, name);
+        return;
+      }
+
+      case "create-from-plan": {
+        const positional: string[] = [];
+        let typeOverride: WorkflowType | undefined;
+
+        for (let index = 0; index < args.length; index += 1) {
+          const arg = args[index];
+
+          if (arg === "--type") {
+            const value = args[index + 1];
+            if (
+              !value ||
+              !["feature", "bugfix", "refactor"].includes(value)
+            ) {
+              fail("--type must be one of: feature, bugfix, refactor.");
+            }
+            typeOverride = value as WorkflowType;
+            index += 1;
+            continue;
+          }
+
+          positional.push(arg);
+        }
+
+        const [planFile, name] = positional;
+
+        if (!planFile) usage();
+
+        await createWorkflowFromPlan(planFile, name, typeOverride);
         return;
       }
 

@@ -25,6 +25,31 @@ export type WorkflowStatus =
 
 export type WorkflowType = "feature" | "bugfix" | "refactor";
 
+export type CapabilityRouting = {
+  mode: "fixed" | "auto";
+  required_capabilities?: string[];
+  preferred_agents?: AgentName[];
+};
+
+export type TaskPlanningPriority =
+  | "low"
+  | "normal"
+  | "high"
+  | "critical";
+
+export type TaskPlanningComplexity = "small" | "medium" | "large";
+
+export type TaskPlanningRisk = "low" | "medium" | "high";
+
+export type TaskPlanningMetadata = {
+  priority?: TaskPlanningPriority;
+  estimated_complexity?: TaskPlanningComplexity;
+  risk?: TaskPlanningRisk;
+  expected_files?: string[];
+  conflict_domains?: string[];
+  parallel_group?: string;
+};
+
 export type SourceTask = {
   id: string;
   title: string;
@@ -32,6 +57,8 @@ export type SourceTask = {
   description: string;
   dependencies: string[];
   acceptance_criteria: string[];
+  routing?: CapabilityRouting;
+  planning?: TaskPlanningMetadata;
 };
 
 export type TaskGraph = {
@@ -41,13 +68,17 @@ export type TaskGraph = {
 export type RuntimeTask = SourceTask & {
   status: TaskStatus;
   attempts: number;
-  max_attempts: number;
+  /**
+   * Lease fields are assigned by the scheduler when a task is claimed and
+   * are absent on freshly created tasks.
+   */
+  max_attempts?: number;
   started_at: string | null;
   completed_at: string | null;
   last_error: string | null;
   result_file: string | null;
-  lease_id: string | null;
-  lease_expires_at: string | null;
+  lease_id?: string | null;
+  lease_expires_at?: string | null;
 };
 
 export type WorkflowState = {

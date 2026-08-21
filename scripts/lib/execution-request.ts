@@ -34,6 +34,12 @@ export function createExecutionRequest(
     );
   }
 
+  if (!task.max_attempts) {
+    throw new Error(
+      `Task "${task.id}" cannot produce an execution request without a retry budget.`,
+    );
+  }
+
   const resultPath =
     `tasks/${state.workflow_id}/results/${task.id}.json`;
 

@@ -8,12 +8,20 @@ import Ajv2020, {
 } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
+import { loadTeamConfig } from "./lib/team-config.js";
+import { getKnownCapabilities } from "./lib/capability-scheduler.js";
+import {
+  normalizePlannerResult,
+  validatePlannerPlan,
+} from "./lib/task-graph-planner.js";
+
 type ContractType =
   | "task-graph"
   | "agent-result"
   | "review-result"
   | "execution-request"
-  | "quality-gate";
+  | "quality-gate"
+  | "planner-result";
 
 type Task = {
   id: string;
@@ -39,6 +47,11 @@ const SCHEMA_PATHS = {
   ),
 
   "quality-gate": resolve(ROOT, ".opencode/schemas/quality-gate.schema.json"),
+
+  "planner-result": resolve(
+    ROOT,
+    ".opencode/schemas/planner-result.schema.json",
+  ),
 } as const;
 
 function fail(message: string): never {
@@ -71,6 +84,8 @@ function formatAjvErrors(errors: ErrorObject[] | null | undefined): string {
     })
     .join("\n");
 }
+
+type AjvSchemaValue = Parameters<Ajv2020["compile"]>[0];
 
 function validateWithSchema(
   validator: ValidateFunction,
@@ -174,11 +189,13 @@ Usage:
   npx tsx scripts/validate-team.ts task-graph <file>
   npx tsx scripts/validate-team.ts agent-result <file>
   npx tsx scripts/validate-team.ts review-result <file>
+  npx tsx scripts/validate-team.ts planner-result <file>
 
 Examples:
   npx tsx scripts/validate-team.ts task-graph task-graph.example.json
   npx tsx scripts/validate-team.ts agent-result examples/agent-result.example.json
   npx tsx scripts/validate-team.ts review-result examples/review-result.example.json
+  npx tsx scripts/validate-team.ts planner-result examples/planner-result.example.json
 `.trim(),
   );
 
@@ -197,6 +214,7 @@ async function main(): Promise<void> {
       "review-result",
       "execution-request",
       "quality-gate",
+      "planner-result",
     ].includes(type)
   ) {
     printUsage();
@@ -210,6 +228,7 @@ async function main(): Promise<void> {
     reviewResultSchema,
     executionRequestSchema,
     qualityGateSchema,
+    plannerResultSchema,
     value,
   ] = await Promise.all([
     loadJson(SCHEMA_PATHS.task),
@@ -217,6 +236,7 @@ async function main(): Promise<void> {
     loadJson(SCHEMA_PATHS["review-result"]),
     loadJson(SCHEMA_PATHS["execution-request"]),
     loadJson(SCHEMA_PATHS["quality-gate"]),
+    loadJson(SCHEMA_PATHS["planner-result"]),
     loadJson(resolve(ROOT, input)),
   ]);
 
@@ -227,11 +247,23 @@ async function main(): Promise<void> {
 
   addFormats(ajv);
 
-  const validateTask = ajv.compile(taskSchema);
-  const validateAgentResult = ajv.compile(agentResultSchema);
-  const validateReviewResult = ajv.compile(reviewResultSchema);
-  const validateExecutionRequest = ajv.compile(executionRequestSchema);
-  const validateQualityGate = ajv.compile(qualityGateSchema);
+  // The planner result schema references the task schema by $id.
+  // Registering it before any compilation avoids duplicate-$id errors.
+  ajv.addSchema(taskSchema as AjvSchemaValue);
+
+  const validateTask = ajv.compile(taskSchema as AjvSchemaValue);
+  const validateAgentResult = ajv.compile(agentResultSchema as AjvSchemaValue);
+  const validateReviewResult = ajv.compile(reviewResultSchema as AjvSchemaValue);
+  const validateExecutionRequest = ajv.compile(
+    executionRequestSchema as AjvSchemaValue,
+  );
+  const validateQualityGate = ajv.compile(
+    qualityGateSchema as AjvSchemaValue,
+  );
+
+  const validatePlannerResult = ajv.compile(
+    plannerResultSchema as AjvSchemaValue,
+  );
 
   switch (contractType) {
     case "task-graph": {
@@ -280,6 +312,30 @@ async function main(): Promise<void> {
       validateWithSchema(validateQualityGate, value, "Quality gate result");
       console.log("✅ Quality gate result is valid.");
       return;
+
+    case "planner-result": {
+      validateWithSchema(validatePlannerResult, value, "Planner result");
+
+      const teamConfig = await loadTeamConfig();
+
+      try {
+        const plan = normalizePlannerResult(value);
+
+        validatePlannerPlan(plan, {
+          knownCapabilities: getKnownCapabilities(teamConfig),
+        });
+
+        console.log(
+          `✅ Planner result is valid (${plan.tasks.length} tasks, ` +
+            `goal: "${plan.goal}").`,
+        );
+      } catch (error) {
+        fail(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      return;
+    }
   }
 }
 

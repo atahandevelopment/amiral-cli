@@ -31,3 +31,7 @@ tasks/.active-workflow
 
 # Amiral integration worktrees and gate artifacts
 .amiral/integration/
+
+# Amiral generated plans (Phase 12)
+plans/
+
