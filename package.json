@@ -1,6 +1,6 @@
 {
   "name": "amiral-ai",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Dependency-aware multi-agent workflow CLI for OpenCode.",
   "bin": {
     "amiral": "dist/src/cli/index.js"
