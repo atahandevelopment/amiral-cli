@@ -1,0 +1,13 @@
+{
+  "status": "CHANGES_REQUESTED",
+  "summary": "Authentication works, but an authorization issue must be fixed before approval.",
+  "findings": [
+    {
+      "severity": "HIGH",
+      "file": "src/Auth/AuthService.cs",
+      "line": 42,
+      "issue": "Resource ownership is not checked before the update.",
+      "recommendation": "Validate that the authenticated user owns the resource before allowing the update."
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenCode AI Team Review Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "findings"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "CHANGES_REQUESTED", "BLOCKED"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "issue", "recommendation"],
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "SUGGESTION"]
+          },
+          "file": { "type": "string", "minLength": 1 },
+          "line": { "type": "integer", "minimum": 1 },
+          "issue": { "type": "string", "minLength": 1 },
+          "recommendation": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "blocking_reason": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "BLOCKED"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "blocking_reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["blocking_reason"]
+      }
+    }
+  ]
+}

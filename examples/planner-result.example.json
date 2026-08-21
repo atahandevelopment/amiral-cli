@@ -1,0 +1,178 @@
+{
+  "goal": "Add JWT authentication with PostgreSQL and a Next.js login page",
+  "summary": "Persist users with PostgreSQL, implement JWT login and refresh endpoints, then add the Next.js login page that consumes them.",
+  "workflow_type": "feature",
+  "tasks": [
+    {
+      "id": "AUTH-DB",
+      "title": "Create user persistence model for authentication",
+      "agent": "database",
+      "description": "Create the database schema and migrations required to persist users and refresh tokens for JWT authentication.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Migration creates the users table with a unique email column",
+        "Migration creates the refresh_tokens table referencing users",
+        "Migration applies successfully on an empty database"
+      ],
+      "routing": {
+        "mode": "auto",
+        "required_capabilities": [
+          "database/postgresql",
+          "database/migrations"
+        ],
+        "preferred_agents": [
+          "database"
+        ]
+      },
+      "planning": {
+        "priority": "high",
+        "estimated_complexity": "medium",
+        "risk": "medium",
+        "expected_files": [
+          "database/**"
+        ],
+        "conflict_domains": [
+          "database-schema"
+        ],
+        "parallel_group": "foundation"
+      }
+    },
+    {
+      "id": "AUTH-API",
+      "title": "Implement JWT login and token issuance endpoints",
+      "agent": "backend",
+      "description": "Implement the login endpoint that verifies credentials against the persisted users and issues access and refresh JWT tokens.",
+      "dependencies": [
+        "AUTH-DB"
+      ],
+      "acceptance_criteria": [
+        "Valid credentials return HTTP 200 with an access token and a refresh token",
+        "Invalid credentials return HTTP 401 without issuing tokens",
+        "Issued access tokens verify with the configured signing key"
+      ],
+      "routing": {
+        "mode": "auto",
+        "required_capabilities": [
+          "backend/authentication",
+          "backend/rest-api",
+          "backend/postgresql"
+        ],
+        "preferred_agents": []
+      },
+      "planning": {
+        "priority": "critical",
+        "estimated_complexity": "large",
+        "risk": "high",
+        "expected_files": [
+          "src/auth/**"
+        ],
+        "conflict_domains": [
+          "auth-core"
+        ],
+        "parallel_group": "implementation"
+      }
+    },
+    {
+      "id": "AUTH-REFRESH",
+      "title": "Implement refresh token rotation endpoint",
+      "agent": "backend",
+      "description": "Implement the refresh endpoint that validates a refresh token, rotates it, and issues a new access token.",
+      "dependencies": [
+        "AUTH-DB"
+      ],
+      "acceptance_criteria": [
+        "A valid refresh token returns HTTP 200 with a new access token",
+        "A reused or expired refresh token returns HTTP 401",
+        "Rotated refresh tokens are invalidated after use"
+      ],
+      "routing": {
+        "mode": "auto",
+        "required_capabilities": [
+          "backend/authentication",
+          "backend/rest-api"
+        ],
+        "preferred_agents": []
+      },
+      "planning": {
+        "priority": "high",
+        "estimated_complexity": "medium",
+        "risk": "high",
+        "expected_files": [
+          "src/auth/**"
+        ],
+        "conflict_domains": [
+          "auth-core"
+        ],
+        "parallel_group": "implementation"
+      }
+    },
+    {
+      "id": "AUTH-UI",
+      "title": "Add Next.js login page consuming the auth endpoints",
+      "agent": "frontend",
+      "description": "Implement the Next.js login page with form validation that calls the login endpoint and stores the issued tokens.",
+      "dependencies": [
+        "AUTH-API"
+      ],
+      "acceptance_criteria": [
+        "Login form renders with email and password fields",
+        "Submitting valid credentials navigates to the post-login page",
+        "Failed logins display the error returned by the API"
+      ],
+      "routing": {
+        "mode": "auto",
+        "required_capabilities": [
+          "frontend/nextjs",
+          "frontend/react",
+          "frontend/typescript"
+        ],
+        "preferred_agents": [
+          "frontend"
+        ]
+      },
+      "planning": {
+        "priority": "normal",
+        "estimated_complexity": "medium",
+        "risk": "low",
+        "expected_files": [
+          "apps/web/src/app/login/**"
+        ],
+        "conflict_domains": [],
+        "parallel_group": "interface"
+      }
+    },
+    {
+      "id": "AUTH-TEST",
+      "title": "Cover authentication flows with automated tests",
+      "agent": "backend",
+      "description": "Add integration tests for the login and refresh endpoints and verify the login page flow end to end.",
+      "dependencies": [
+        "AUTH-API",
+        "AUTH-REFRESH"
+      ],
+      "acceptance_criteria": [
+        "Login success, login failure, and refresh rotation are covered by tests",
+        "All new tests pass",
+        "Existing test suite still passes"
+      ],
+      "routing": {
+        "mode": "auto",
+        "required_capabilities": [
+          "backend/rest-api",
+          "backend/authentication"
+        ],
+        "preferred_agents": []
+      },
+      "planning": {
+        "priority": "high",
+        "estimated_complexity": "medium",
+        "risk": "low",
+        "expected_files": [
+          "tests/**"
+        ],
+        "conflict_domains": [],
+        "parallel_group": "validation"
+      }
+    }
+  ]
+}

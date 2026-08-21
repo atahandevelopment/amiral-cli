@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/opencode-ai-team/workflow-history.schema.json",
+  "title": "OpenCode AI Team Workflow History",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "timestamp",
+      "workflow_id",
+      "event",
+      "message"
+    ],
+    "properties": {
+      "timestamp": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "workflow_id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "event": {
+        "type": "string",
+        "enum": [
+          "workflow_created",
+          "workflow_status_changed",
+          "task_status_changed",
+          "task_result_attached"
+        ]
+      },
+      "task_id": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "message": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
