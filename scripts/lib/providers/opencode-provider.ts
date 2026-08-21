@@ -514,9 +514,24 @@ export class OpenCodeProvider implements ExecutionProvider {
       input.agent,
     );
 
+    const args = buildOpenCodePromptArgs(input, options.model, options.autoApprove);
+
+    try {
+      return await runProcess(options.binary, args, input.cwd);
+    } catch (error) {
+      throw classifySpawnError(this.name, error);
+    }
+  }
+}
+
+/** Build a CLI invocation with options before OpenCode's variadic message. */
+export function buildOpenCodePromptArgs(
+  input: PromptTransportInput,
+  configuredModel?: string,
+  configuredAutoApprove = false,
+): string[] {
     const args = [
       "run",
-      input.prompt,
       "--agent",
       input.agent,
       "--dir",
@@ -525,22 +540,18 @@ export class OpenCodeProvider implements ExecutionProvider {
       "json",
     ];
 
-    const model = input.model ?? options.model;
+    const model = input.model ?? configuredModel;
 
     if (model) {
       args.push("--model", model);
     }
 
-    const autoApprove = input.autoApprove ?? options.autoApprove;
+    const autoApprove = input.autoApprove ?? configuredAutoApprove;
 
     if (autoApprove) {
       args.push("--auto");
     }
 
-    try {
-      return await runProcess(options.binary, args, input.cwd);
-    } catch (error) {
-      throw classifySpawnError(this.name, error);
-    }
-  }
+    args.push(input.prompt);
+    return args;
 }

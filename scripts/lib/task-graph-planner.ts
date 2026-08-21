@@ -370,7 +370,7 @@ export function buildPlannerPrompt(
   return `
 # Amiral Intelligent Task Graph Planning
 
-You are the Planner agent of the Amiral AI engineering team.
+You are the Amiral machine planning protocol agent.
 
 Produce a Task Graph Plan for the following user request.
 
@@ -409,6 +409,7 @@ ${knownCapabilities.map((capability) => `- ${capability}`).join("\n")}
 13. Identify likely conflict domains in "planning.conflict_domains" when two tasks could touch overlapping areas.
 14. Do not create tasks that modify workflow state files.
 15. Avoid circular or artificial dependencies.
+16. The supplied workflow type is authoritative. If the goal is short, title-like, or underspecified, make reasonable engineering assumptions and produce an actionable plan consistent with that workflow type; do not ask for clarification.
 
 ## Required Output
 

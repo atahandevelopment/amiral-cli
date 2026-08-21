@@ -115,10 +115,11 @@ async function collectTemplateFiles(
   return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
-/** Minimal mode keeps team.yaml + schemas + workflows only. */
+/** Minimal mode keeps essentials, including the machine planning agent. */
 function isIncludedInMinimal(relativePath: string): boolean {
   return (
     relativePath === "team.yaml" ||
+    relativePath === ".opencode/agents/planning-protocol.md" ||
     relativePath.startsWith(".opencode/schemas/") ||
     relativePath.startsWith(".opencode/workflows/")
   );
