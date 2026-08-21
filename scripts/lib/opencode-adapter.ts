@@ -370,6 +370,47 @@ export async function executeWithOpenCode(
     return texts.join("\n").trim();
   }
 
+  async function createProtocolFailureResult(
+    request: ExecutionRequest,
+    stdout: string,
+  ): Promise<AgentResult> {
+    const finalText = extractTextEvents(stdout);
+
+    return {
+      workflow_id: request.workflow_id,
+
+      task_id: request.task_id,
+
+      lease_id: request.lease_id,
+
+      agent: request.agent,
+
+      status: "failed",
+
+      summary:
+        "Agent execution finished without producing the mandatory structured Agent Result.",
+
+      files_changed: [],
+
+      commands_executed: [],
+
+      tests: [],
+
+      risks: [
+        "The provider completed execution without satisfying the Amiral Agent Result protocol.",
+      ],
+
+      additional_tasks_required: [],
+
+      failure_reason: finalText
+        ? `Missing structured Agent Result. Final provider response: ${finalText.slice(
+            0,
+            1000,
+          )}`
+        : "Missing structured Agent Result and no usable final provider response was produced.",
+    };
+  }
+
   function extractJsonObject(text: string): AgentResult | null {
     if (!text) {
       return null;
@@ -404,6 +445,7 @@ export async function executeWithOpenCode(
   }
 
   async function readAgentResult(
+    request: ExecutionRequest,
     localResultPath: string,
     stdout: string,
   ): Promise<AgentResult> {
@@ -420,13 +462,19 @@ export async function executeWithOpenCode(
         return recovered;
       }
 
-      throw new Error(
-        `Agent finished but produced neither a readable result file nor a recoverable JSON result. Expected "${localResultPath}".`,
-      );
+      const fallback = await createProtocolFailureResult(request, stdout);
+
+      await writeJson(localResultPath, fallback);
+
+      return fallback;
     }
   }
 
-  let result = await readAgentResult(localResultPath, processResult.stdout);
+  let result = await readAgentResult(
+    request,
+    localResultPath,
+    processResult.stdout,
+  );
 
   result = normalizeAgentResult(result);
   await validateContract("agent-result", result);
