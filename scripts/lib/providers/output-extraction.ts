@@ -52,34 +52,44 @@ export function extractTextEvents(stdout: string): string {
  * Handles fenced code blocks and raw or embedded JSON objects.
  */
 export function extractJsonObject<T = unknown>(text: string): T | null {
+  return extractJsonObjects<T>(text)[0] ?? null;
+}
+
+/**
+ * Extract complete JSON object candidates without being confused by braces in
+ * JSON strings. Candidates remain ordered so callers can apply domain
+ * validation and select the first object that satisfies their contract.
+ */
+export function extractJsonObjects<T = unknown>(text: string): T[] {
   if (!text) {
-    return null;
+    return [];
   }
 
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-
-  const candidates = [fenced?.[1]?.trim(), text.trim()].filter(
-    (value): value is string => Boolean(value),
-  );
-
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(candidate) as T;
-    } catch {
-      // devam
-    }
-
-    const start = candidate.indexOf("{");
-    const end = candidate.lastIndexOf("}");
-
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(candidate.slice(start, end + 1)) as T;
-      } catch {
-        // devam
+  const results: T[] = [];
+  for (let start = text.indexOf("{"); start >= 0; start = text.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index++) {
+      const char = text[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') { inString = true; continue; }
+      if (char === "{") depth++;
+      else if (char === "}" && --depth === 0) {
+        try {
+          results.push(JSON.parse(text.slice(start, index + 1)) as T);
+          // A valid outer object already contains its nested objects; preserve
+          // top-level candidate order without returning those internals.
+          start = index;
+        } catch { /* Resume at the next opening brace after malformed noise. */ }
+        break;
       }
     }
   }
-
-  return null;
+  return results;
 }

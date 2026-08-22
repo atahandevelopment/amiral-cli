@@ -7,7 +7,7 @@ import { buildPlannerPrompt, loadTaskGraphFromPlanFile, normalizePlannerResult, 
 import { analyzeTaskGraph, type TaskGraphAnalysis } from "./task-graph-analysis.js";
 import { getKnownCapabilities } from "./capability-scheduler.js";
 import { sanitizeSegment } from "./git-worktree.js";
-import { extractJsonObject, extractTextEvents } from "./providers/output-extraction.js";
+import { extractJsonObjects, extractTextEvents } from "./providers/output-extraction.js";
 import { getPromptTransport } from "./providers/provider-registry.js";
 import { classifyProviderFailure, describeProviderError } from "./providers/provider-error.js";
 import type { PromptTransportProvider } from "./providers/provider.js";
@@ -18,7 +18,7 @@ import { writeJson } from "./workflow-store.js";
 
 export type { WorkflowType };
 export const PLANNING_PROTOCOL_AGENT = "planning-protocol";
-export type PlanWorkflowOptions = { type: WorkflowType; goal: string; name?: string; planFile?: string; onEvent?: (eventOrLine: string) => void; transport?: PromptTransportProvider; delay?: (milliseconds: number) => Promise<void>; random?: () => number };
+export type PlanWorkflowOptions = { type: WorkflowType; goal: string; /** Complete, authoritative user request. Falls back to goal for existing callers. */ originalRequest?: string; name?: string; planFile?: string; onEvent?: (eventOrLine: string) => void; transport?: PromptTransportProvider; delay?: (milliseconds: number) => Promise<void>; random?: () => number };
 export type PlanWorkflowResult = { planId: string; planDir: string; plannerResult: TaskGraphPlan; taskGraph: TaskGraph; analysis: TaskGraphAnalysis; artifactFiles: { plannerResult: string; taskGraph: string; rawText?: string; rawJson?: string; diagnostics?: string } };
 
 const DIAGNOSTIC_LIMIT = 4_000;
@@ -35,11 +35,17 @@ function safeDiagnostic(value: string, limit = DIAGNOSTIC_LIMIT): string {
 }
 
 async function parsePlannerOutput(text: string, knownCapabilities: string[]): Promise<{ raw: unknown; plan: TaskGraphPlan }> {
-  const raw = extractJsonObject(text);
-  if (raw === null) throw new Error("Could not extract a complete JSON object from planner output.");
-  const plan = normalizePlannerResult(raw);
-  await validatePlannerPlanWithSchema(plan, { knownCapabilities });
-  return { raw, plan };
+  const candidates = extractJsonObjects(text);
+  if (!candidates.length) throw new Error("Could not extract a complete JSON object from planner output.");
+  let lastIssue = "";
+  for (const raw of candidates) {
+    try {
+      const plan = normalizePlannerResult(raw);
+      await validatePlannerPlanWithSchema(plan, { knownCapabilities });
+      return { raw, plan };
+    } catch (error) { lastIssue = error instanceof Error ? error.message : String(error); }
+  }
+  throw new Error(`No extracted JSON object matched the planner contract (${candidates.length} candidate${candidates.length === 1 ? "" : "s"}). Last validation error: ${lastIssue}`);
 }
 
 async function exists(file: string): Promise<boolean> { try { await access(file); return true; } catch { return false; } }
@@ -63,7 +69,8 @@ export async function analyzePlanFile(file: string): Promise<{ plannerResult?: T
 export async function planWorkflow(options: PlanWorkflowOptions): Promise<PlanWorkflowResult> {
   const teamConfig = await loadTeamConfig();
   const knownCapabilities = getKnownCapabilities(teamConfig);
-  if (!options.planFile && !options.goal.trim()) throw new Error("A non-empty goal is required when --plan-file is not supplied.");
+  const originalRequest = options.originalRequest?.trim() || options.goal.trim();
+  if (!options.planFile && !originalRequest) throw new Error("A non-empty goal or original request is required when --plan-file is not supplied.");
   let rawText: string;
   let rawPlan: unknown;
   let plannerResult: TaskGraphPlan | undefined;
@@ -84,7 +91,7 @@ export async function planWorkflow(options: PlanWorkflowOptions): Promise<PlanWo
     const transport = options.transport ?? getPromptTransport(provider);
     const retry = resolveProviderConfig(teamConfig, provider).retry;
     const delay = options.delay ?? ((milliseconds: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, milliseconds)));
-    const basePrompt = buildPlannerPrompt(options.goal.trim(), teamConfig, options.type);
+    const basePrompt = buildPlannerPrompt(originalRequest, teamConfig, options.type);
     let issue = "";
     for (let attempt = 1; attempt <= 3; attempt++) {
       const prompt = attempt === 1 ? basePrompt : `${basePrompt}\n\nYour previous response was rejected: ${safeDiagnostic(issue, FEEDBACK_LIMIT)}\nReturn a corrected, complete JSON object only. Do not ask questions; make reasonable engineering assumptions consistent with the ${options.type} workflow.`;
@@ -111,7 +118,7 @@ export async function planWorkflow(options: PlanWorkflowOptions): Promise<PlanWo
         // those authoritative fields and validate the resulting plan again.
         const canonicalPlan: TaskGraphPlan = {
           ...parsed.plan,
-          goal: options.goal.trim(),
+          goal: originalRequest,
           workflow_type: options.type,
         };
         await validatePlannerPlanWithSchema(canonicalPlan, { knownCapabilities });
@@ -126,7 +133,7 @@ export async function planWorkflow(options: PlanWorkflowOptions): Promise<PlanWo
       }
     }
     await writeJson(diagnosticsFile, diagnostics);
-    if (diagnostics.at(-1)?.issue) throw new Error(`Planner recovery exhausted after 3 attempts: ${issue}. Diagnostics saved to: plans/${planId}/planner-diagnostics.json`);
+    if (diagnostics.at(-1)?.issue) throw new Error(`Planner recovery exhausted after 3 attempts: ${safeDiagnostic(issue, FEEDBACK_LIMIT)}. Diagnostics saved to: plans/${planId}/planner-diagnostics.json`);
   }
   const rawTextFile = resolve(planDir, "planner-result.raw.txt");
   const rawJsonFile = resolve(planDir, "planner-result.raw.json");

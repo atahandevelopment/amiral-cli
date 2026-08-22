@@ -19,10 +19,11 @@ export function registerRun(program: Command): void {
   program.command("run [goal]").description("Plan, create, or resume and execute a workflow")
     .option("--plan <id-or-file>").option("--workflow <id>")
     .option("--type <type>", "feature, bugfix, or refactor", "feature")
+    .option("--request <text>", "complete original request when goal is a short title")
     .option("--name <name>").option("--plan-file <file>").option("--json", "emit one JSON document")
     .action(async (goal, opts, cmd) => {
       if (!TYPES.includes(opts.type)) throw new UsageCliError("--type must be feature, bugfix, or refactor.");
-      const modes = [Boolean(goal || opts.planFile), Boolean(opts.plan), Boolean(opts.workflow)].filter(Boolean).length;
+      const modes = [Boolean(goal || opts.request || opts.planFile), Boolean(opts.plan), Boolean(opts.workflow)].filter(Boolean).length;
       if (modes > 1) throw new UsageCliError("Select only one of a goal/--plan-file, --plan, or --workflow.");
       await enterProjectContext();
       const out = new Output({ ...globalOptions(cmd), json: opts.json || globalOptions(cmd).json });
@@ -40,8 +41,8 @@ export function registerRun(program: Command): void {
         const create = await import("../../../scripts/lib/workflow-create.js");
         const planning = await import("../../../scripts/lib/planning-service.js");
         let workflowId: string | undefined = opts.workflow;
-        if (goal || opts.planFile) {
-          const plan = await planning.planWorkflow({ type: opts.type, goal: goal?.trim() ?? "", name: opts.name, planFile: opts.planFile, onEvent: line => { if (out.options.verbose && !out.options.json) out.info(line); } });
+        if (goal || opts.request || opts.planFile) {
+          const plan = await planning.planWorkflow({ type: opts.type, goal: goal?.trim() ?? "", originalRequest: opts.request?.trim(), name: opts.name, planFile: opts.planFile, onEvent: line => { if (out.options.verbose && !out.options.json) out.info(line); } });
           planId = plan.planId;
           workflowId = (await create.createWorkflowFromGraph({ type: plan.plannerResult.workflow_type ?? opts.type, graph: plan.taskGraph, graphSource: plan.artifactFiles.taskGraph, name: opts.name })).workflow_id;
         } else if (opts.plan) {
