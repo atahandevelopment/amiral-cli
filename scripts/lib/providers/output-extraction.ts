@@ -41,7 +41,9 @@ export function extractTextEvents(stdout: string): string {
     }
   }
 
-  return texts.join("\n").trim();
+  // OpenCode text events are incremental chunks of one assistant response.
+  // Adding separators corrupts fragmented JSON (for example `{` + `"a":1}`).
+  return texts.join("").trim();
 }
 
 /**

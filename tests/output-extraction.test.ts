@@ -16,7 +16,12 @@ describe("output-extraction (result recovery regression)", () => {
       '{"type":"text","part":{"type":"text","text":"line two"}}',
     ].join("\n");
 
-    assert.equal(extractTextEvents(stdout), "line one\nline two");
+    assert.equal(extractTextEvents(stdout), "line oneline two");
+  });
+
+  it("joins fragmented JSON chunks while ignoring mixed logs", () => {
+    const stdout = ['INFO starting','{"type":"text","part":{"type":"text","text":"{\\\"a\\\":"}}','noise','{"type":"text","part":{"type":"text","text":"1}"}}'].join("\n");
+    assert.equal(extractTextEvents(stdout), '{"a":1}');
   });
 
   it("returns empty string when no text events exist", () => {
