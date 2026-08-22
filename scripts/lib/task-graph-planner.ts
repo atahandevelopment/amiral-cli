@@ -360,7 +360,7 @@ export async function loadTaskGraphFromPlanFile(
  * capabilities from team.yaml so the Planner can only use real values.
  */
 export function buildPlannerPrompt(
-  goal: string,
+  originalRequest: string,
   teamConfig: TeamConfig,
   workflowType: WorkflowType,
 ): string {
@@ -378,9 +378,9 @@ Produce a Task Graph Plan for the following user request.
 
 ${workflowType}
 
-## User Request (Goal)
+## Original User Request (Authoritative, Verbatim)
 
-${goal}
+${originalRequest}
 
 ## Available Agents and Capabilities
 
@@ -409,7 +409,7 @@ ${knownCapabilities.map((capability) => `- ${capability}`).join("\n")}
 13. Identify likely conflict domains in "planning.conflict_domains" when two tasks could touch overlapping areas.
 14. Do not create tasks that modify workflow state files.
 15. Avoid circular or artificial dependencies.
-16. The supplied workflow type is authoritative. If the goal is short, title-like, or underspecified, make reasonable engineering assumptions and produce an actionable plan consistent with that workflow type; do not ask for clarification.
+16. The supplied workflow type is authoritative, as is the complete original user request. Never replace the request with a derived title or summary. If it is underspecified, make reasonable engineering assumptions and produce an actionable plan consistent with that workflow type; do not ask for clarification.
 
 ## Required Output
 

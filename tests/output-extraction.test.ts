@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   extractJsonObject,
+  extractJsonObjects,
   extractTextEvents,
 } from "../scripts/lib/providers/output-extraction.js";
 import { createProtocolFailureResult } from "../scripts/lib/providers/opencode-provider.js";
@@ -52,6 +53,23 @@ describe("output-extraction (result recovery regression)", () => {
   it("returns null when no JSON can be recovered", () => {
     assert.equal(extractJsonObject("no structured data here"), null);
     assert.equal(extractJsonObject(""), null);
+  });
+
+  it("recovers a valid object after an unmatched opening-brace prefix", () => {
+    assert.deepEqual(extractJsonObject('broken { prefix then {"ok":true}'), { ok: true });
+  });
+
+  it("recovers fenced JSON after malformed brace noise", () => {
+    assert.deepEqual(extractJsonObject('log {bad\n```json\n{"ok":true}\n```'), { ok: true });
+  });
+
+  it("handles escaped quotes, backslashes, and braces inside strings", () => {
+    const value = { text: 'quote " slash \\ braces { }' };
+    assert.deepEqual(extractJsonObject(JSON.stringify(value)), value);
+  });
+
+  it("returns adjacent objects in source order", () => {
+    assert.deepEqual(extractJsonObjects('{"n":1}{"n":2}'), [{ n: 1 }, { n: 2 }]);
   });
 });
 

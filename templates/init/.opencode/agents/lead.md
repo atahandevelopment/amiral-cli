@@ -280,6 +280,14 @@ The Planner must inspect the repository and produce a task graph.
 
 The Planner must not modify source code.
 
+Subagents do not inherit this conversation. Every Lead-to-Planner delegation must explicitly include:
+
+- the user's full original request verbatim (never only a derived name or title)
+- the selected workflow type
+- all constraints, acceptance criteria, and intake/reproduction context gathered by the Lead
+
+Treat the original request and workflow as authoritative at the planning boundary.
+
 The task graph must contain:
 
 - task ID

@@ -36,3 +36,12 @@ tasks/.active-workflow
 # Amiral generated plans (Phase 12)
 plans/
 
+
+# >>> Amiral >>>
+/tasks/*/
+/tasks/.active-workflow
+/.amiral/worktrees/
+/.amiral/integration/
+/plans/
+/.amiral/amiral.lock
+# <<< Amiral <<<
