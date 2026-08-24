@@ -1,5 +1,7 @@
 # Amiral AI Orchestration Team
 
+[English](./README.md) | [Türkçe](./README_TR.md)
+
 ![AMIRAL_Logo](./assets/amiral-ai.png)
 
 Amiral is a persistent, dependency-aware multi-agent engineering workflow for [OpenCode](https://opencode.ai/). Its `amiral` CLI plans work, assigns tasks to specialized agents in isolated Git worktrees, integrates their results, and enforces independent review and QA gates.

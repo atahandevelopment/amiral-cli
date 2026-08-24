@@ -9,6 +9,8 @@
     "dist",
     "templates",
     "README.md",
+    "README_TR.md",
+    "assets/amiral-ai.png",
     "PHASE14_CLI_PRODUCTIZATION.md"
   ],
   "engines": {
