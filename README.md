@@ -1,4 +1,6 @@
-# OpenCode AI Team
+# Amiral AI Orchestration Team
+
+![AMIRAL_Logo](./assets/amiral-ai.png)
 
 A role-based, dependency-aware multi-agent software development team for [OpenCode](https://opencode.ai/).
 
@@ -1307,25 +1309,6 @@ Its intended architecture is:
               ▼          └──→ Developer
            COMPLETE
 ```
-
----
-
-## Roadmap Ideas
-
-Potential future improvements:
-
-- Add a web dashboard and remote control
-- Add distributed and multi-user coordination
-- Add more execution providers and provider load balancing
-- Add token/cost tracking
-- Complete the release workflow
-- Add CI validation for agent definitions
-- Add JSON Schema validation for task contracts
-- Add resumable workflows
-- Add task retry policies
-- Add structured telemetry
-- Add example projects
-- Add OpenCode installation/setup automation
 
 ---
 
