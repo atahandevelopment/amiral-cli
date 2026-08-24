@@ -4,7 +4,7 @@
 
 ![AMIRAL_Logo](./assets/amiral-ai.png)
 
-Amiral, [OpenCode](https://opencode.ai/) için kalıcı ve bağımlılıkların farkında olan çok aracılı bir mühendislik iş akışıdır. `amiral` CLI; işi planlar, görevleri yalıtılmış Git worktree'lerinde uzman aracılara atar, sonuçlarını entegre eder ve bağımsız inceleme ile QA geçitlerini zorunlu kılar.
+Amiral, [OpenCode](https://opencode.ai/) için kalıcı ve bağımlılıkların farkında olan çok ajanlı bir mühendislik iş akışıdır. `amiral` CLI; işi planlar, görevleri yalıtılmış Git worktree'lerinde uzman ajanlara atar, sonuçlarını entegre eder ve bağımsız inceleme ile QA geçitlerini zorunlu kılar.
 
 ## En önemli ayrım: `plan` çalıştırma yapmaz
 
@@ -107,10 +107,10 @@ amiral config validate
 amiral init [--minimal] [--force]
 ```
 
-- `--minimal`: yalnızca `team.yaml`, iş akışı tanımları, şemalar ve makine planlama aracısını kurar.
+- `--minimal`: yalnızca `team.yaml`, iş akışı tanımları, şemalar ve makine planlama ajanını kurar.
 - `--force`: mevcut şablon dosyalarının üzerine yazar. Dikkatli kullanın; bu seçenek olmadan mevcut dosyalar korunur.
 
-Tam başlatma, `team.yaml` ve `.opencode/` içindeki izin listesindeki şablonları (aracılar, iş akışları, sözleşmeler, orkestrasyon, politikalar, istemler, şemalar ve OpenCode yapılandırması) kurar. Başlatma ayrıca `.gitignore` dosyasına işaretçilerle sınırlanmış bir Amiral bloğu ekler; bloğu çoğaltmaz ve blok dışındaki içeriğin üzerine yazmaz. Güvenli olmayan sembolik bağlantı hedeflerini reddeder ve hiçbir zaman paket manifestlerini, bağımlılıkları veya çalışma zamanı durumunu kurmaz.
+Tam başlatma, `team.yaml` ve `.opencode/` içindeki izin listesindeki şablonları (ajanlar, iş akışları, sözleşmeler, orkestrasyon, politikalar, istemler, şemalar ve OpenCode yapılandırması) kurar. Başlatma ayrıca `.gitignore` dosyasına işaretçilerle sınırlanmış bir Amiral bloğu ekler; bloğu çoğaltmaz ve blok dışındaki içeriğin üzerine yazmaz. Güvenli olmayan sembolik bağlantı hedeflerini reddeder ve hiçbir zaman paket manifestlerini, bağımlılıkları veya çalışma zamanı durumunu kurmaz.
 
 ## Proje kökünü bulma
 
@@ -124,11 +124,11 @@ Tam başlatma, `team.yaml` ve `.opencode/` içindeki izin listesindeki şablonla
 
 ## İstekler: konumsal `goal` ile `--request` karşılaştırması
 
-Kullanıcının eksiksiz özgün isteği, planlama için belirleyici girdidir.
+Kullanıcının eksiksiz özgün isteği, planlamanın esas girdisidir.
 
 - Normal kullanımda isteğin tamamı için konumsal `[goal]` kullanın.
 - Konumsal hedef yalnızca kısa bir başlıksa tüm gereksinimleri `--request` içine koyun.
-- İkisi de verilirse boş olmayan `--request`, eksiksiz ve belirleyici istektir; kısa hedef buna eklenmez.
+- İkisi de verilirse boş olmayan `--request`, eksiksiz ve esas istektir; kısa hedef buna eklenmez.
 - `--request` yoksa `goal`, eksiksiz istek olur.
 - `--plan-file` bir planı içe aktarır; dolayısıyla iki metin argümanından birini gerektirmez.
 
@@ -136,7 +136,7 @@ Kullanıcının eksiksiz özgün isteği, planlama için belirleyici girdidir.
 # İsteğin tamamı konumsal argümanda
 amiral plan "Add password reset with expiring one-use tokens and integration tests"
 
-# Kısa, gösterim düzeyinde fikir ve eksiksiz belirleyici istek
+# Kısa, gösterim düzeyinde fikir ve eksiksiz esas istek
 amiral run "Password reset" \
   --request "Add email-based password reset. Tokens expire after 15 minutes, are one-use, and must be covered by integration tests." \
   --type feature
@@ -169,13 +169,13 @@ Temel ilkeler:
 - Mimari kararlar vermeden önce mevcut depoyu inceleyin; mevcut kuralları izleyin.
 - Tek orkestrasyon yetkilisi Lead'dir. Planner analiz eder ve ayrıştırır ancak uygulama yapmaz.
 - Frontend, backend, database ve DevOps uzmanları yalnızca atanan işi uygular.
-- Bir görev ancak tüm bağımlılıkları tamamlandığında zamanlanabilir. Bağımsız görevler yalnızca yapılandırılmış sağlayıcı/araç kapasitesi içinde ve güvenliyse eşzamanlı çalışabilir.
+- Bir görev ancak tüm bağımlılıkları tamamlandığında zamanlanabilir. Bağımsız görevler yalnızca yapılandırılmış sağlayıcı/ajan kapasitesi içinde ve güvenliyse eşzamanlı çalışabilir.
 - İş, görev worktree'lerinde yalıtılır ve entegrasyon worktree'sine idempotent biçimde birleştirilir.
 - Reviewer ve QA bağımsız geçitlerdir. Önemsiz olmayan bir iş akışı ancak uygulama, entegrasyon, inceleme `PASS` ve QA `PASS` sonrasında tamamlanır.
 - İncelemedeki `CHANGES_REQUESTED`, `quality.max_review_rounds` sınırına kadar düzeltme görevleri oluşturur; engellenen/tükenen geçitler sahte başarıya dönüşmez.
 - İlgisiz değişiklikleri koruyun, yıkıcı Git eylemlerinden kaçının ve kimlik bilgilerini asla açığa çıkarmayın.
 
-Birlikte verilen `team.yaml`; aracıları, yetenekleri, sağlayıcı yönlendirmesi/kapasitesini, kiralamaları, yeniden denemeleri, Git saklama ayarlarını ve `feature`, `bugfix`, `refactor` iş akışlarını tanımlar. Zamanlayıcı görev bağımlılıklarını ve gerekli yetenekleri kullanır; etkin paralellik `execution.max_parallel_agents` ve sağlayıcı eşzamanlılığıyla sınırlıdır (birlikte verilen yapılandırmada her ikisinin varsayılanı da 1'dir).
+Birlikte verilen `team.yaml`; ajanları, yetenekleri, sağlayıcı yönlendirmesi/kapasitesini, kiralamaları, yeniden denemeleri, Git saklama ayarlarını ve `feature`, `bugfix`, `refactor` iş akışlarını tanımlar. Zamanlayıcı görev bağımlılıklarını ve gerekli yetenekleri kullanır; etkin paralellik `execution.max_parallel_agents` ve sağlayıcı eşzamanlılığıyla sınırlıdır (birlikte verilen yapılandırmada her ikisinin varsayılanı da 1'dir).
 
 ## Global bayraklar ve çıktı
 
@@ -228,7 +228,7 @@ amiral plan [goal]
   --json
 ```
 
-Planlama sağlayıcısını çalıştırır (içe aktarma dışında), grafiği doğrulayıp analiz eder, yapıları `plans/<plan-id>/` altına kaydeder, görev sayısı/derinlik/paralel gruplar/çakışma uyarılarını bildirir ve **uygulama yapmadan çıkar**.
+Planlama sağlayıcısını çalıştırır (içe aktarma dışında), grafiği doğrulayıp analiz eder, çıktı dosyalarını (artifact'ları) `plans/<plan-id>/` altına kaydeder, görev sayısı/derinlik/paralel gruplar/çakışma uyarılarını bildirir ve **uygulama yapmadan çıkar**.
 
 ```bash
 amiral plan "Repair duplicate invoice creation" --type bugfix --name invoice-race
@@ -389,7 +389,7 @@ amiral config validate [--json]
 
 - `path`: bulunan mutlak `team.yaml` yolunu yazdırır.
 - `show`: normalleştirilmiş yapılandırmayı, etkin çalıştırma/sağlayıcı kapasitesini ve kayıtlı sağlayıcıları yazdırır. token/key/secret/password ile eşleşen anahtarlar özyinelemeli olarak `[REDACTED]` ile değiştirilir.
-- `validate`: varsayılan sağlayıcının kayıtlı/etkin olduğunu ve yapılandırmanın en az bir nesne değerli aracı tanımı içerdiğini doğrular; çıktı sağlayıcı/kapasite verilerini içerir. Her aracı alanını veya karşılık gelen aracı dosyasını derinlemesine doğrulamaz.
+- `validate`: varsayılan sağlayıcının kayıtlı/etkin olduğunu ve yapılandırmanın en az bir nesne değerli ajan tanımı içerdiğini doğrular; çıktı sağlayıcı/kapasite verilerini içerir. Her ajan alanını veya karşılık gelen ajan dosyasını derinlemesine doğrulamaz.
 
 ```bash
 amiral config path
@@ -424,10 +424,10 @@ tasks/
 ├── amiral.lock
 ├── amiral.lock.guard                 # geçici iç mutex; eski durum kurtarması bunu kaldırabilir
 ├── worktrees/<workflow-id>/...       # görev worktree'leri
-└── integration/<workflow-id>/...     # entegre ağaç ve geçit yapıları
+└── integration/<workflow-id>/...     # entegre ağaç ve geçit çıktı dosyaları (artifact'ları)
 ```
 
-Bu yollar yerel çalışma zamanı yapılarıdır ve başlatıcı bunları `.gitignore` dosyasına ekler. Belgelenmiş bir SQLite durum deposu yoktur: JSON dosyaları belirleyicidir. Bir komut `.amiral/amiral.lock` kilidini tutarken durumu elle düzenlemeyin.
+Bu yollar yerel çalışma zamanı çıktı dosyalarıdır (artifact'lardır) ve başlatıcı bunları `.gitignore` dosyasına ekler. Belgelenmiş bir SQLite durum deposu yoktur: JSON dosyaları esas kayıt kaynağı, yani tek doğruluk kaynağıdır. Bir komut `.amiral/amiral.lock` kilidini tutarken durumu elle düzenlemeyin.
 
 `--workflow` olmadan iş akışı çözümlemesi `tasks/.active-workflow` kullanır; bu yoksa tek iş akışı otomatik seçilir, birden çok iş akışı ise `amiral workflow use <id>` veya açık bir kimlik gerektirir.
 
@@ -499,12 +499,12 @@ Komuta `--json` ekleyin, yalnızca stdout'u ayrıştırın ve stderr'i ayrı tut
 
 ```text
 AGENTS.md                     ekip genelindeki çalışma kuralları
-team.yaml                     aracılar, sağlayıcılar, kapasiteler, iş akışları
+team.yaml                     ajanlar, sağlayıcılar, kapasiteler, iş akışları
 .opencode/
 ├── agents/                   rol talimatları
 ├── workflows/                feature, bugfix, refactor süreçleri
 ├── orchestration/            çalıştırma/bağımlılık/hata protokolleri
-├── contracts/                görev, aracı sonucu, inceleme sözleşmeleri
+├── contracts/                görev, ajan sonucu, inceleme sözleşmeleri
 ├── policies/                 mimari, Git, inceleme, test kuralları
 ├── prompts/ and schemas/     makine istemleri ve doğrulama sözleşmeleri
 └── opencode.json             OpenCode yapılandırması
@@ -515,7 +515,7 @@ tests/                        Node test paketi
 memory/                       mimari, kurallar, kararlar, dersler
 ```
 
-Etkin paketlenmiş iş akışları `feature`, `bugfix` ve `refactor`dır. Aracılar Lead, Planner, Frontend, Backend, Database, DevOps, Reviewer ve QA'i içerir. Aracı tanımları sorumluluğu; iş akışları süreci açıklar; politikalar çapraz kesen kuralları uygular; sözleşmeler makinece okunabilir devirleri tanımlar; beceriler yalnızca ilgili olduğunda uzmanlık bilgisi sağlar.
+Etkin paketlenmiş iş akışları `feature`, `bugfix` ve `refactor`dır. Ajanlar Lead, Planner, Frontend, Backend, Database, DevOps, Reviewer ve QA'i içerir. Ajan tanımları sorumluluğu; iş akışları süreci açıklar; politikalar çapraz kesen kuralları uygular; sözleşmeler makinece okunabilir devirleri tanımlar; beceriler yalnızca ilgili olduğunda uzmanlık bilgisi sağlar.
 
 ## Kaynak kod geliştirme
 
