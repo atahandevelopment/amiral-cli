@@ -11,9 +11,8 @@ The goal is to make AI-assisted software development behave more like a structur
 ## Product quick start
 
 ```bash
-npm install
+npm install amiral-ai || npm install -g amiral-ai
 npm run build
-npm link
 amiral --version
 amiral --help
 
