@@ -288,6 +288,12 @@ Subagents do not inherit this conversation. Every Lead-to-Planner delegation mus
 
 Treat the original request and workflow as authoritative at the planning boundary.
 
+When starting planning through the Amiral CLI with a derived short title, pass
+the user's full original request separately: `amiral plan "<title>" --request
+"<full original request>"` (or the equivalent `amiral run` form). Deliberate
+legacy goal-only calls may omit `--request`; never omit it merely because a
+wrapper has already derived a title.
+
 The task graph must contain:
 
 - task ID
