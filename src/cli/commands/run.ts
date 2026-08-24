@@ -3,6 +3,7 @@ import type { RunStopReason } from "../../../scripts/lib/orchestrator.js";
 import { enterProjectContext, globalOptions } from "../context.js";
 import { EXIT, UsageCliError } from "../errors.js";
 import { Output } from "../ui/output.js";
+import { planningOptionsFromCli } from "./plan.js";
 
 const TYPES = ["feature", "bugfix", "refactor"] as const;
 
@@ -42,7 +43,7 @@ export function registerRun(program: Command): void {
         const planning = await import("../../../scripts/lib/planning-service.js");
         let workflowId: string | undefined = opts.workflow;
         if (goal || opts.request || opts.planFile) {
-          const plan = await planning.planWorkflow({ type: opts.type, goal: goal?.trim() ?? "", originalRequest: opts.request?.trim(), name: opts.name, planFile: opts.planFile, onEvent: line => { if (out.options.verbose && !out.options.json) out.info(line); } });
+          const plan = await planning.planWorkflow({ ...planningOptionsFromCli(goal, opts), onEvent: line => { if (out.options.verbose && !out.options.json) out.info(line); } });
           planId = plan.planId;
           workflowId = (await create.createWorkflowFromGraph({ type: plan.plannerResult.workflow_type ?? opts.type, graph: plan.taskGraph, graphSource: plan.artifactFiles.taskGraph, name: opts.name })).workflow_id;
         } else if (opts.plan) {

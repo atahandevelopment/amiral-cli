@@ -1,1336 +1,546 @@
-# OpenCode AI Team
+# Amiral AI Orchestration Team
 
-A role-based, dependency-aware multi-agent software development team for [OpenCode](https://opencode.ai/).
+![AMIRAL_Logo](./assets/amiral-ai.png)
 
-This repository defines a reusable AI engineering workflow in which a **Lead Agent** coordinates specialized agents for planning, frontend, backend, database, DevOps, code review, and QA.
+Amiral is a persistent, dependency-aware multi-agent engineering workflow for [OpenCode](https://opencode.ai/). Its `amiral` CLI plans work, assigns tasks to specialized agents in isolated Git worktrees, integrates their results, and enforces independent review and QA gates.
 
-The goal is to make AI-assisted software development behave more like a structured engineering team than a single coding assistant.
+## The most important distinction: `plan` does not execute
 
-## Product quick start
+> **`amiral plan` creates and validates a reusable plan, writes it under `plans/`, prints the plan ID, and exits. It intentionally does not create or execute a workflow.**
+>
+> **`amiral run` executes.** Given a request, it first plans and then creates and runs a workflow. It can also execute a saved plan or resume a persisted workflow.
+
+Choose the command by intent:
+
+| You want to... | Use |
+| --- | --- |
+| Inspect or approve a task graph before any implementation starts | `amiral plan "Add authentication"` |
+| Execute that approved plan | `amiral run --plan feature-ab12cd34` |
+| Plan and execute in one command | `amiral run "Add authentication"` |
+| Continue an interrupted, paused, or retried workflow | `amiral run --workflow feature-ab12cd34` |
+| Continue the currently selected workflow | `amiral run` |
 
 ```bash
-npm install
-npm run build
-npm link
+# Two-step, review-before-execution flow
+amiral plan "Add authentication" --type feature
+# Output includes: Plan created: feature-ab12cd34
+amiral run --plan feature-ab12cd34
+
+# One-step flow: the same request is planned and then executed
+amiral run "Add authentication" --type feature
+```
+
+`--plan` on `run` accepts either a plan ID under `plans/` or an existing plan/graph file. Do not use `amiral run --plan ...` expecting it to create a plan; it consumes one.
+
+## Prerequisites
+
+- Node.js **20 or newer** and npm.
+- Git, with the target directory initialized as a repository. `amiral init` never runs `git init`.
+- The configured provider CLI. The supplied configuration uses the `opencode` executable; install it, authenticate it according to OpenCode's instructions, and ensure it is on `PATH`.
+- A clean working tree before integration. Amiral preserves unrelated user changes and will not integrate into a dirty tree.
+- Provider access, models, and credentials appropriate to your OpenCode setup. Do not put secrets in tracked configuration.
+
+Confirm readiness with `amiral doctor` and `amiral config validate` after initialization.
+
+## Installation and invocation
+
+### Global installation
+
+```bash
+npm install --global amiral-ai
 amiral --version
 amiral --help
-
-# In a Git project:
-amiral init --minimal
-amiral plan "Add authentication" --type feature
-amiral run --plan <plan-id>
-amiral status
 ```
 
-Amiral is a persistent, dependency-aware orchestration CLI. It can be invoked from the project root or any nested directory (including paths with spaces); it discovers `team.yaml` by walking upward.
-
-| Command | Purpose |
-| --- | --- |
-| `init` | Safely install Amiral templates |
-| `plan` | Create/validate a task graph, online or from `--plan-file` |
-| `run` | Plan and run, run a saved plan, or resume a workflow |
-| `status` | Show workflow/task/retry/provider status |
-| `workflow` | List, select, inspect, cancel, reset, and view history |
-| `retry` | Retry one task or failed/blocked task sets |
-| `review` / `qa` | Run standalone quality gates |
-| `clean` | Preview or perform conservative worktree cleanup |
-| `doctor` | Diagnose project, Git, provider, and runtime health |
-| `config` | Locate, show redacted, or validate configuration |
-
-`run` performs planning → persistent workflow creation → dependency-aware scheduling/provider execution → integration → review/fix rounds → QA. It stops safely on completion, failure/blocking, retry wait, required input, no progress, review-round limit, or interruption; rerunning resumes persisted state.
-
-Automation receives uncontaminated JSON:
+### Project-local installation
 
 ```bash
-amiral status --json > status.json
+npm install --save-dev amiral-ai
+npx amiral --version
+```
+
+You can also add a package script, for example `"amiral": "amiral"`, then run `npm run amiral -- status`.
+
+### Run without installing
+
+```bash
+npx --yes amiral-ai --version
+npx --yes amiral-ai init --minimal
+```
+
+`npm run build` is only for developing this repository; it is not required after installing the published package. With a local install, prefer `npx amiral` so the project-local binary is used. With no local install, `npx amiral-ai ...` identifies the npm package unambiguously.
+
+### Verify the package and version
+
+```bash
+amiral --version                         # active global/PATH binary
+npx amiral --version                     # local binary, when installed
+npm view amiral-ai version               # current registry version
+npm list amiral-ai                       # local installed version
+npm list --global amiral-ai              # global installed version
+```
+
+The package version is read from its installed `package.json`; this repository currently declares **0.1.2**. If an upgrade still reports an old version, determine which executable is being resolved (`where amiral` on Windows, `which -a amiral` on macOS/Linux), remove conflicting global/local installs, clear only npm's normal cache if npm reports corruption, and reinstall. Avoid blindly combining a stale global binary with a newer local package.
+
+```bash
+npm update --save-dev amiral-ai           # update a local dependency within its range
+npm install --global amiral-ai@latest     # replace the global package
+npx --yes amiral-ai@latest --version      # explicitly use the latest registry release
+```
+
+Reinstalling the CLI does not migrate or delete project runtime state. Review release changes before using a newer CLI against existing `tasks/` data.
+
+## Initialize a project
+
+Run initialization in the intended project root:
+
+```bash
+git init                                  # only if this is not already a Git repository
+amiral init --minimal
+amiral doctor
+amiral config validate
+```
+
+```text
+amiral init [--minimal] [--force]
+```
+
+- `--minimal`: install only `team.yaml`, workflow definitions, schemas, and the machine planning agent.
+- `--force`: overwrite existing template files. Use carefully; without it, existing files are retained.
+
+Full initialization installs the whitelisted templates in `team.yaml` and `.opencode/` (agents, workflows, contracts, orchestration, policies, prompts, schemas, and OpenCode configuration). Initialization also adds a marker-delimited Amiral block to `.gitignore`; it does not duplicate the block and does not overwrite content outside it. It rejects unsafe symbolic-link destinations and never installs package manifests, dependencies, or runtime state.
+
+## Project-root discovery
+
+Except for `init`, commands can be run in the project root or any nested directory, including paths containing spaces. Amiral walks upward:
+
+1. The nearest ancestor containing `team.yaml` wins.
+2. If no `team.yaml` is found, the first ancestor containing `.amiral` or `.opencode` is a fallback.
+3. If none exists, the command fails and suggests `amiral init`.
+
+The process then operates from the discovered root. `doctor` is special: it can diagnose the current directory even when no Amiral root is found, and `doctor --fix` can create missing support directories/minimal files there.
+
+## Requests: positional `goal` versus `--request`
+
+The complete original user request is authoritative input to planning.
+
+- Use the positional `[goal]` for the entire request in ordinary usage.
+- When the positional goal is only a short title, place the full requirements in `--request`.
+- If both are supplied, non-empty `--request` is the complete authoritative request; the short goal is not concatenated with it.
+- If `--request` is absent, `goal` becomes the complete request.
+- `--plan-file` imports a plan and therefore does not require either text argument.
+
+```bash
+# Full request in the positional argument
+amiral plan "Add password reset with expiring one-use tokens and integration tests"
+
+# Short display-level idea plus the complete authoritative request
+amiral run "Password reset" \
+  --request "Add email-based password reset. Tokens expire after 15 minutes, are one-use, and must be covered by integration tests." \
+  --type feature
+```
+
+Shell quoting matters. Quote requests containing spaces; use your shell's continuation syntax or a single line for long requests. Avoid putting secrets in command arguments because shells and process tools may record them.
+
+## Operating model
+
+```text
+User request
+    ↓
+Lead / workflow selection
+    ↓
+Planner → validated dependency graph
+    ↓
+Specialists in isolated Git worktrees
+    ↓
+Integration worktree
+    ↓
+Reviewer ── CHANGES_REQUESTED → fix tasks → review again
+    ↓ PASS
+QA ──────── FAIL/BLOCKED → stop for input
+    ↓ PASS
+Complete
+```
+
+Core principles:
+
+- Inspect the existing repository before making architectural decisions; follow existing conventions.
+- The Lead is the sole orchestration authority. The Planner analyzes and decomposes but does not implement.
+- Frontend, backend, database, and DevOps specialists implement only assigned work.
+- A task is schedulable only after all dependencies are complete. Independent tasks may run concurrently only within configured provider/agent capacity and when safe.
+- Work is isolated in task worktrees and merged idempotently into an integration worktree.
+- Reviewer and QA are independent gates. A non-trivial workflow is complete only after implementation, integration, review `PASS`, and QA `PASS`.
+- Review `CHANGES_REQUESTED` creates fix tasks up to `quality.max_review_rounds`; blocking/exhausted gates do not become false successes.
+- Preserve unrelated changes, avoid destructive Git actions, and never expose credentials.
+
+The supplied `team.yaml` defines agents, capabilities, provider routing/capacity, leases, retries, Git retention, and the `feature`, `bugfix`, and `refactor` workflows. The scheduler uses task dependencies and required capabilities; effective parallelism is bounded by `execution.max_parallel_agents` and provider concurrency (both default to 1 in the supplied configuration).
+
+## Global flags and output
+
+These flags may be placed before or after a subcommand; command-specific `--json`/`--verbose` forms are also accepted where declared.
+
+| Flag | Meaning |
+| --- | --- |
+| `-q, --quiet` | Suppress normal output where commands use the standard output renderer. `config path` and non-JSON `config show` currently write directly to stdout. |
+| `-v, --verbose` | Include diagnostic/progress events where supported. |
+| `--json` | Emit one JSON document for successful command output. |
+| `-V, --version` | Print the package version. |
+| `-h, --help` | Show help; use after any command/subcommand for scoped help. |
+
+For automation, use `--json` and check the exit code:
+
+```bash
+amiral --json status > status.json
 amiral doctor --json > doctor.json
-amiral config show --json > config.json  # secrets are redacted
+amiral config show --json > config.json       # secret-like keys are redacted
+amiral workflow list --json
 ```
 
-The historical `scripts/*.ts` commands remain backward-compatible internal entry points. See [Phase 14 — CLI Productization](PHASE14_CLI_PRODUCTIZATION.md) for complete command, locking, signal, output, packaging, and platform behavior.
+Normal JSON output goes to stdout as one document. Errors go to stderr; in JSON mode they have the shape `{"error":{"message":"...","code":N}}`. Verbose provider progress is suppressed during JSON-producing planning/run/gate commands so stdout remains parseable. Interactive commands still require `--force` in non-TTY automation where documented.
 
----
+`doctor` is a diagnostic exception: it currently exits `0` after completing its checks even when some checks fail. Automation must inspect the JSON `failures` count or each `checks[].state`; do not treat its exit code alone as a readiness result.
 
-## Overview
+Exit codes are stable CLI categories:
 
-The system is built around a simple idea:
+| Code | Meaning |
+| ---: | --- |
+| 0 | Success; also used when `run` pauses for a scheduled transient retry. |
+| 1 | General failure or no progress. |
+| 2 | Invalid usage or declined/required confirmation. |
+| 3 | Missing/invalid configuration. |
+| 4 | Workflow blocked, gate not passing, lock/admin conflict, or input required. |
+| 5 | Provider failure. |
+| 6 | Validation/schema failure. |
+| 130 | Interrupted. |
+
+## Command reference
+
+### `amiral plan`
 
 ```text
-User
-  ↓
-Lead
-  ↓
-Planner
-  ↓
-Task Graph
-  ↓
-┌────────────┬────────────┬────────────┐
-│ Frontend   │ Backend    │ Database   │
-└────────────┴────────────┴────────────┘
-              ↓
-          Integration
-              ↓
-           Reviewer
-              ↓
-              QA
-              ↓
-           Complete
+amiral plan [goal]
+  --type <feature|bugfix|refactor>   default: feature
+  --request <text>                   complete original request
+  --name <name>                      prefix used in generated plan ID
+  --plan-file <file-or-plan-id>      import and validate planner-format JSON
+  --json
 ```
 
-The **Lead Agent** is the only orchestration authority. It understands the request, inspects the repository, selects the correct workflow, delegates work, enforces dependencies, validates agent results, coordinates review, runs QA, and reports completion only when all required quality gates have passed.
+Runs the planning provider (unless importing), validates and analyzes the graph, saves artifacts under `plans/<plan-id>/`, reports task count/depth/parallel groups/conflict warnings, and **exits without implementation**.
 
----
+```bash
+amiral plan "Repair duplicate invoice creation" --type bugfix --name invoice-race
+amiral plan --plan-file ./approved-plan.json --type refactor --json
+```
 
-## Core Principles
+Imported `--plan-file` content must be planner-format JSON; `plan` writes a new normalized plan directory. To execute an already saved graph directly, use `run --plan`.
 
-The team follows several important engineering principles:
-
-- Inspect the existing repository before making architectural or implementation decisions.
-- Never assume a technology, pattern, or architecture exists without verifying it.
-- Prefer existing project conventions over introducing unnecessary new patterns.
-- Keep responsibilities separated between planning, implementation, review, and validation.
-- Do not execute dependent tasks before their dependencies are complete.
-- Run independent tasks in parallel only when it is safe.
-- Preserve unrelated user changes.
-- Never expose secrets or hard-code credentials.
-- Never perform destructive Git operations without explicit approval.
-- Never report non-trivial work as complete before implementation, review, and QA succeed.
-
-For non-trivial work, the completion gate is:
+### `amiral run`
 
 ```text
-Implementation
-      ↓
- Integration
-      ↓
- Review PASS
-      ↓
-   QA PASS
-      ↓
-  Complete
+amiral run [goal]
+  --plan <id-or-file>
+  --workflow <id>
+  --type <feature|bugfix|refactor>   default: feature
+  --request <text>
+  --name <name>
+  --plan-file <file-or-plan-id>
+  --json
 ```
 
----
+Exactly one execution mode may be selected:
 
-## Repository Structure
+1. `[goal]`, `--request`, or `--plan-file`: create a plan, create a workflow, then execute it.
+2. `--plan <id-or-file>`: validate a saved planner result/task graph, create a workflow, then execute it.
+3. `--workflow <id>`: resume that persisted workflow.
+4. No mode: resume the active workflow (or the sole workflow if none is selected).
+
+`--name` names newly generated plan/workflow IDs; it does not rename an existing workflow. `--type` controls new online planning and is the fallback when an imported graph does not carry a workflow type.
+
+```bash
+amiral run "Add favorites" --type feature
+amiral run --plan feature-ab12cd34
+amiral run --plan ./plans/reviewed/task-graph.json --name favorites-approved
+amiral run --workflow feature-cd34ef56 --verbose
+amiral run                              # active workflow
+```
+
+`run` holds the runtime lock and iterates through scheduling, provider dispatch, integration, review/fix rounds, and QA. It returns when complete or at a safe pause condition; it is not a daemon.
+
+### `amiral status`
 
 ```text
-opencode-ai-team/
-│
-├── AGENTS.md
-├── team.yaml
-│
-├── .opencode/
-│   ├── agents/
-│   │   ├── lead.md
-│   │   ├── planner.md
-│   │   ├── frontend.md
-│   │   ├── backend.md
-│   │   ├── database.md
-│   │   ├── devops.md
-│   │   ├── reviewer.md
-│   │   └── qa.md
-│   │
-│   ├── workflows/
-│   │   ├── feature.md
-│   │   ├── bugfix.md
-│   │   ├── refactor.md
-│   │   ├── code-review.md
-│   │   └── release.md
-│   │
-│   ├── orchestration/
-│   │   ├── execution.md
-│   │   ├── dependency.md
-│   │   └── error-handling.md
-│   │
-│   ├── contracts/
-│   │   ├── task.md
-│   │   ├── agent-result.md
-│   │   └── review-result.md
-│   │
-│   ├── policies/
-│   │   ├── architecture.md
-│   │   ├── git.md
-│   │   ├── review.md
-│   │   └── testing.md
-│   │
-│   └── opencode.json
-│
-├── memory/
-│   ├── architecture.md
-│   ├── conventions.md
-│   ├── decisions.md
-│   └── lessons-learned.md
-│
-├── scripts/
-│   ├── start-team.ts
-│   ├── assign-task.ts
-│   ├── run-workflow.ts
-│   └── validate-team.ts
-│
-└── vendor/
-    └── addy-agent-skills
+amiral status [--workflow <id>] [--json] [--verbose]
 ```
 
----
+Shows workflow status, the configured default provider name, task counts and retry/provider-error details, quality state, and active worktrees. It does not perform a live provider health or authentication check; use `doctor` for diagnostics. Without `--workflow`, it resolves the active/sole workflow.
 
-## Team Roles
+```bash
+amiral status
+amiral status --workflow feature-cd34ef56 --json
+```
 
-### Lead
+### `amiral workflow`
 
-The Lead is the primary agent and orchestrator.
-
-Responsibilities:
-
-- Understand user requirements
-- Inspect the repository
-- Classify the requested work
-- Select the appropriate workflow
-- Delegate planning and implementation
-- Coordinate task dependencies
-- Validate agent results
-- Coordinate code review
-- Coordinate QA
-- Decide when the work is actually complete
-
-The Lead may implement directly only when the task is trivial, isolated, and low risk.
-
-For non-trivial work, the Lead delegates to specialist agents.
-
----
-
-### Planner
-
-The Planner is responsible for turning a requirement into an executable engineering plan.
-
-Responsibilities:
-
-- Requirement analysis
-- Repository analysis
-- Architecture analysis
-- Dependency analysis
-- Task decomposition
-- Skill discovery
-- Acceptance criteria
-- Risk identification
-
-The Planner is intentionally restricted from modifying source code and from orchestrating other agents.
-
-Its primary output is a **Task Graph**.
-
----
-
-### Frontend
-
-The Frontend Agent handles client-side implementation.
-
-Primary technologies include:
-
-- Next.js
-- React
-- Angular
-- Astro
-- TypeScript
-- Tailwind CSS
-- shadcn/ui
-- TanStack Query
-
-Key rules:
-
-- Use TypeScript strictly
-- Prefer simple, maintainable components
-- Avoid unnecessary abstractions
-- Keep business logic outside presentation components
-- Follow existing project conventions
-- Handle loading, error, and empty states
-- Run relevant tests, type checks, and linting
-
----
-
-### Backend
-
-The Backend Agent handles server-side implementation.
-
-Primary technologies include:
-
-- .NET
-- ASP.NET Core
-- Entity Framework Core
-- REST APIs
-- Scalar API Documentation
-
-Responsibilities include:
-
-- API implementation
-- Business logic
-- Validation
-- Authentication and authorization
-- Error handling
-- Persistence integration
-
-Key rules:
-
-- Keep controllers thin
-- Keep business logic out of controllers
-- Validate inputs
-- Prefer async APIs
-- Follow the existing architecture
-- Handle errors consistently
-- Never expose sensitive data
-
----
-
-### Database
-
-The Database Agent is responsible for persistence-related work.
-
-Typical responsibilities:
-
-- Schemas
-- Migrations
-- Entities
-- Relationships
-- Indexes
-- Queries
-- PostgreSQL
-- Database optimization
-
-Database tasks can be used as dependencies for backend or other implementation work.
-
----
-
-### DevOps
-
-The DevOps Agent handles infrastructure, deployment, and operational concerns.
-
-Typical areas include:
-
-- Docker
-- Kubernetes
-- CI/CD
-- Cloud infrastructure
-- Deployment
-- Environment configuration
-- Operational reliability
-
-> Note: DevOps exists in the agent definitions, Lead configuration, Planner rules, and task contract. The top-level `AGENTS.md` team list should be updated to include DevOps for consistency.
-
----
-
-### Reviewer
-
-The Reviewer is a dedicated quality gate and does not implement feature code.
-
-It reviews:
-
-1. Correctness
-2. Architecture
-3. Maintainability
-4. Security
-5. Performance
-6. Error handling
-7. Testing
-8. Duplication
-9. Unnecessary complexity
-
-Findings are classified as:
+Administrative and inspection subcommands:
 
 ```text
-CRITICAL
-HIGH
-MEDIUM
-LOW
-SUGGESTION
+amiral workflow list
+amiral workflow use <id>
+amiral workflow show <id> [--json]
+amiral workflow cancel <id> [--force]
+amiral workflow reset-task <task-id> [--workflow <id>] [--force]
+amiral workflow history [id] [--limit <positive-integer>]   default: 20
 ```
 
-A change cannot be approved while unresolved `CRITICAL` or `HIGH` issues remain.
+- `list`: list IDs, statuses, active selection, and update times.
+- `use`: write the active workflow selection used by commands without an ID.
+- `show`: show graph goal/summary when available and task details.
+- `cancel`: cancel a workflow and release leases. It prompts in a TTY; non-interactive use requires `--force`.
+- `reset-task`: manually return one task to retryable state. `--workflow` disambiguates it; `--force` permits otherwise restricted reset cases. This subcommand does not prompt.
+- `history`: show newest requested history view up to `--limit`; omit ID to use active resolution.
 
-Review results are expected to be:
+```bash
+amiral workflow list
+amiral workflow use feature-cd34ef56
+amiral workflow show feature-cd34ef56 --json
+amiral workflow history feature-cd34ef56 --limit 50
+amiral workflow cancel obsolete-workflow --force
+amiral workflow reset-task API-002 --workflow feature-cd34ef56 --force
+```
+
+### `amiral retry`
 
 ```text
-PASS
-CHANGES_REQUESTED
-BLOCKED
+amiral retry <task-id> [--workflow <id>] [--force]
+amiral retry --failed [--workflow <id>]
+amiral retry --blocked [--workflow <id>]
 ```
 
----
+Select exactly one task ID, `--failed`, or `--blocked`. It resets matching tasks but preserves their worktrees; it does not execute them. Follow with `amiral run --workflow <id>` (or `amiral run` for the active workflow).
 
-### QA
+```bash
+amiral retry API-002 --workflow feature-cd34ef56
+amiral retry --failed --workflow feature-cd34ef56
+amiral run --workflow feature-cd34ef56
+```
 
-The QA Agent verifies that the implementation actually works.
-
-QA may validate:
-
-- Unit tests
-- Integration tests
-- End-to-end tests
-- Type checking
-- Linting
-- Build
-- Regression behavior
-
-QA returns:
+### `amiral review` and `amiral qa`
 
 ```text
-PASS
+amiral review [--workflow <id>] [--json]
+amiral qa     [--workflow <id>] [--json]
 ```
 
-or:
+Run a standalone gate against the selected workflow/integration workspace. Review reports verdict, summary, and findings; QA reports verdict, checks, and findings. A verdict other than `PASS` exits with code 4. These commands run a gate only; they do not replace `run`'s complete lifecycle or automatically execute resulting fixes.
+
+```bash
+amiral review --workflow feature-cd34ef56
+amiral qa --workflow feature-cd34ef56 --json
+```
+
+### `amiral clean`
 
 ```text
-FAIL
+amiral clean [--workflow <id> | --all]
+  [--completed] [--remove-failed] [--remove-blocked]
+  [--delete-branches] [--dry-run] [--force]
 ```
 
-A failed QA result must include enough information to identify the failing area and reproduce the problem when possible.
+Cleanup is conservative:
 
----
+- With no cleanup policy selector, it previews completed-worktree cleanup only; no files are deleted.
+- `--dry-run` always previews.
+- `--completed` enables removal of completed worktrees.
+- `--remove-failed` / `--remove-blocked` opt into deleting retained failed/blocked worktrees.
+- `--delete-branches` opts into branch deletion; branches are kept otherwise.
+- Scope defaults to the active workflow; choose one `--workflow` or `--all`, never both.
+- Actual cleanup prompts in a TTY and requires `--force` in non-interactive environments.
+- The current preview reports overall worktree usage. Its displayed scope is contextual metadata, not an exact per-worktree deletion plan filtered to `--workflow`.
 
-## Workflows
+```bash
+amiral clean --workflow feature-cd34ef56 --dry-run
+amiral clean --workflow feature-cd34ef56 --completed
+amiral clean --all --completed --remove-failed --delete-branches --force
+```
 
-The Lead selects one primary workflow based on the request.
-
-### Feature
-
-Used for:
-
-- New functionality
-- New modules
-- New APIs
-- New UI
-- Authentication
-- Database-backed features
-
-File:
+### `amiral doctor`
 
 ```text
-.opencode/workflows/feature.md
+amiral doctor [--json] [--fix]
 ```
 
-Typical lifecycle:
+Checks project layout, Git/provider/configuration health, runtime directories, and stale worktrees. `--fix` performs limited support repair: ensures `.amiral/worktrees`, `.amiral/integration`, and `tasks`, runs minimal initialization, and ensures the marker-managed `.gitignore` block. It is not a general auto-repair tool and does not initialize Git or authenticate a provider.
+
+```bash
+amiral doctor --json
+amiral doctor --fix
+```
+
+### `amiral config`
 
 ```text
-Requirement Analysis
-        ↓
-     Planning
-        ↓
-    Task Graph
-        ↓
- Task Scheduling
-        ↓
- Implementation
-        ↓
-   Integration
-        ↓
-  Code Review
-        ↓
- Review Fixes
-        ↓
-       QA
-        ↓
-   QA Fixes
-        ↓
-   Completion
+amiral config path
+amiral config show [--json]
+amiral config validate [--json]
 ```
 
----
+- `path`: print the discovered absolute `team.yaml` path.
+- `show`: print normalized configuration, effective execution/provider capacity, and registered providers. Keys matching token/key/secret/password are recursively replaced with `[REDACTED]`.
+- `validate`: verify the default provider is registered/enabled and that configuration contains at least one object-valued agent definition; output includes provider/capacity data. It does not deeply validate every agent field or corresponding agent file.
 
-### Bug Fix
+```bash
+amiral config path
+amiral config show --json
+amiral config validate
+```
 
-Used for:
+Redaction is a display safeguard, not permission to store secrets in `team.yaml`.
 
-- Existing bugs
-- Unexpected behavior
-- Failing tests
-- Production issues
-- Debugging existing functionality
+## Persistence, stopping, and resume
 
-File:
+Plans and workflows are different persistent objects:
 
 ```text
-.opencode/workflows/bugfix.md
-```
-
-Conceptually:
-
-```text
-Reproduce
-   ↓
-Root Cause
-   ↓
-Minimal Fix
-   ↓
-Review
-   ↓
-QA
-```
-
----
-
-### Refactor
-
-Used for:
-
-- Removing duplication
-- Simplifying implementation
-- Improving architecture
-- Improving maintainability
-- Restructuring code without intentionally changing behavior
-
-File:
-
-```text
-.opencode/workflows/refactor.md
-```
-
-The key principle is to preserve existing behavior unless the task explicitly requests otherwise.
-
----
-
-## Task Graph
-
-For non-trivial and complex work, the Planner creates a Task Graph.
-
-Each task must contain:
-
-```yaml
-id:
-title:
-agent:
-description:
-dependencies:
-acceptance_criteria:
-```
-
-Example:
-
-```yaml
-tasks:
-
-  - id: DB-001
-    title: Create authentication schema
-    agent: database
-    description: Create the required database entities and relationships.
-    dependencies: []
-    acceptance_criteria:
-      - Required entities exist
-      - Relationships are correct
-      - Migration succeeds
-
-  - id: API-001
-    title: Implement authentication API
-    agent: backend
-    description: Implement authentication endpoints and business logic.
-    dependencies:
-      - DB-001
-    acceptance_criteria:
-      - Login works
-      - Registration works
-      - Invalid credentials are rejected
-
-  - id: UI-001
-    title: Implement authentication interface
-    agent: frontend
-    description: Implement login and registration interfaces.
-    dependencies:
-      - API-001
-    acceptance_criteria:
-      - Login form works
-      - Validation works
-      - API errors are displayed correctly
-
-  - id: REVIEW-001
-    title: Review implementation
-    agent: reviewer
-    description: Review all implementation changes.
-    dependencies:
-      - API-001
-      - UI-001
-    acceptance_criteria:
-      - No critical issues
-      - Architecture is acceptable
-      - Security concerns are resolved
-
-  - id: QA-001
-    title: Validate feature
-    agent: qa
-    description: Execute automated and functional validation.
-    dependencies:
-      - REVIEW-001
-    acceptance_criteria:
-      - Tests pass
-      - Build passes
-      - No blocking regressions
-```
-
----
-
-## Task Lifecycle
-
-Valid task states are:
-
-```text
-pending
-in_progress
-completed
-failed
-blocked
-cancelled
-```
-
-A task is considered **READY** when:
-
-```text
-status == pending
-```
-
-and all of its dependencies are:
-
-```text
-completed
-```
-
-Example:
-
-```text
-DB-001      completed
-API-001     pending
-UI-001      pending
-```
-
-If `API-001` depends on `DB-001`, then `API-001` becomes READY.
-
-If `UI-001` does not depend on either task, it may also run in parallel.
-
----
-
-## Dependency-Aware Execution
-
-The Lead executes tasks according to dependency relationships.
-
-Example:
-
-```text
-DB-001
-   │
-   ▼
-API-001
-   │
-   ├──────────────┐
-   ▼              ▼
-UI-001         API-002
-   │              │
-   └──────┬───────┘
-          ▼
-       REVIEW
-          │
-          ▼
-          QA
-```
-
-The Lead must not start a dependent task while any dependency is:
-
-- pending
-- in progress
-- failed
-- blocked
-
-Independent tasks may run concurrently when safe.
-
-Parallel execution should be avoided when tasks:
-
-- Modify conflicting files
-- Require sequential state
-- Depend on each other
-- Contain conflicting database migrations
-- Share unsafe mutable resources
-
----
-
-## Complexity Classification
-
-The Lead classifies work into four categories.
-
-### Trivial
-
-Examples:
-
-- Typo
-- Small documentation change
-- Small configuration change
-- Isolated constant change
-
-The Lead may implement directly.
-
-### Simple
-
-A small change affecting one area.
-
-The Lead may delegate directly to a specialist without requiring a Planner.
-
-### Non-Trivial
-
-Typical characteristics:
-
-- Multiple files
-- Dependencies
-- Architecture decisions
-- Cross-module behavior
-
-Planner required.
-
-### Complex
-
-Typical characteristics:
-
-- Multiple agents
-- Significant architectural work
-- Database/API/frontend coordination
-- Infrastructure changes
-- High implementation risk
-
-Planner required.
-
----
-
-## Orchestration Lifecycle
-
-The central execution protocol is defined in:
-
-```text
-.opencode/orchestration/execution.md
-```
-
-Lifecycle:
-
-```text
-REQUEST
-   ↓
-CLASSIFY
-   ↓
-WORKFLOW
-   ↓
-PLAN
-   ↓
-TASK GRAPH
-   ↓
-EXECUTE
-   ↓
-COLLECT RESULTS
-   ↓
-REVIEW
-   ↓
-QA
-   ↓
-COMPLETE
-```
-
-The Lead repeatedly performs:
-
-```text
-PLAN
-  ↓
-VALIDATE GRAPH
-  ↓
-FIND READY TASKS
-  ↓
-EXECUTE
-  ↓
-COLLECT RESULTS
-  ↓
-UPDATE GRAPH
-  ↓
-FIND READY TASKS
-  ↓
-REPEAT
-```
-
-until the workflow is complete or blocked.
-
----
-
-## Review Feedback Loop
-
-If the Reviewer returns:
-
-```text
-CHANGES_REQUESTED
-```
-
-the Lead must identify the responsible implementation agent and delegate the required correction.
-
-```text
-Reviewer
-   ↓
-CHANGES_REQUESTED
-   ↓
-Lead
-   ↓
-Responsible Agent
-   ↓
-Fix
-   ↓
-Reviewer
-```
-
-QA must not begin while blocking review findings remain.
-
----
-
-## QA Feedback Loop
-
-If QA returns:
-
-```text
-FAIL
-```
-
-the Lead must identify the responsible implementation task and delegate the fix.
-
-If implementation changed, review should run again before QA is repeated.
-
-```text
-QA FAIL
-   ↓
-Lead
-   ↓
-Responsible Agent
-   ↓
-Fix
-   ↓
-Reviewer
-   ↓
-QA
-```
-
-The workflow must never report success while blocking QA failures remain.
-
----
-
-## Contracts
-
-The repository defines explicit communication contracts under:
-
-```text
-.opencode/contracts/
-```
-
-### Task Contract
-
-Defines the structure of Planner-generated engineering tasks.
-
-Required fields:
-
-- `id`
-- `title`
-- `agent`
-- `description`
-- `dependencies`
-- `acceptance_criteria`
-
-Optional fields include:
-
-- `priority`
-- `parallel`
-- `estimated_complexity`
-- `skills`
-- `files`
-
----
-
-### Agent Result Contract
-
-Defines how implementation agents report task results back to the Lead.
-
-This allows the Lead to map agent execution outcomes into workflow state.
-
-Conceptually:
-
-```text
-Agent Result
-     │
-     ├── completed → task = completed
-     ├── failed    → task = failed
-     └── blocked   → task = blocked
-```
-
----
-
-### Review Result Contract
-
-Defines the expected format for review output and makes review results easier for the Lead to process consistently.
-
----
-
-## Policies
-
-Policies define engineering rules that apply across roles.
-
-Available policies include:
-
-```text
-.opencode/policies/architecture.md
-.opencode/policies/git.md
-.opencode/policies/review.md
-.opencode/policies/testing.md
-```
-
-The architecture can be understood as:
-
-```text
-Agent
-= responsibility
-
-Workflow
-= process
-
-Policy
-= rules
-
-Skill
-= specialized knowledge
-
-Contract
-= communication format
-```
-
-Keeping these concerns separate makes the system easier to maintain and extend.
-
----
-
-## Skills
-
-`team.yaml` associates agents with relevant skill areas.
-
-Frontend skills include areas such as:
-
-- Next.js
-- React
-- TypeScript
-- Tailwind
-- Storybook
-- TanStack Query
-- Axios
-- Angular
-- Vue
-- NextAuth
-- Material UI
-- Ant Design
-
-Backend skills include:
-
-- .NET
-- EF Core
-- REST
-- gRPC
-- GraphQL
-- Redis
-- Kafka
-- RabbitMQ
-- Docker
-- Kubernetes
-- AWS
-- Azure
-- Elasticsearch
-
-Database skills include:
-
-- PostgreSQL
-- Optimization
-
-QA skills include:
-
-- Unit testing
-- Integration testing
-- E2E testing
-
-Agents are instructed to load only relevant skills using OpenCode's native skill mechanism.
-
-This avoids unnecessarily loading every available specialization into every task.
-
----
-
-## Memory
-
-The `memory/` directory stores reusable project knowledge.
-
-```text
-memory/
-├── architecture.md
-├── conventions.md
-├── decisions.md
-└── lessons-learned.md
-```
-
-### `architecture.md`
-
-Documents the project's current architecture.
-
-### `conventions.md`
-
-Stores project conventions and recurring implementation patterns.
-
-### `decisions.md`
-
-Stores important technical decisions and their rationale.
-
-Examples:
-
-- Why PostgreSQL was chosen
-- Why REST was chosen instead of GraphQL
-- Why a specific state-management solution was selected
-
-### `lessons-learned.md`
-
-Stores useful knowledge from previous implementation problems, mistakes, or recurring issues.
-
-The memory layer is intended to reduce repeated discovery and preserve engineering context across tasks.
-
----
-
-## Configuration
-
-The current OpenCode configuration is intentionally minimal:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json"
-}
-```
-
-Most of the team behavior is currently defined by agent instructions and workflow files under `.opencode/`.
-
----
-
-## How It Works in Practice
-
-Suppose the user requests:
-
-```text
-Add a favorites feature for products.
-```
-
-The expected execution is:
-
-```text
-User
- ↓
-Lead
- ↓
-Feature Workflow
- ↓
-Planner
- ↓
-Task Graph
-```
-
-The Planner might produce:
-
-```yaml
-tasks:
-
-  - id: DB-001
-    agent: database
-    dependencies: []
-
-  - id: API-001
-    agent: backend
-    dependencies:
-      - DB-001
-
-  - id: UI-001
-    agent: frontend
-    dependencies:
-      - API-001
-
-  - id: REVIEW-001
-    agent: reviewer
-    dependencies:
-      - API-001
-      - UI-001
-
-  - id: QA-001
-    agent: qa
-    dependencies:
-      - REVIEW-001
-```
-
-The Lead then executes the graph:
-
-```text
-DB-001
-   ↓
-API-001
-   ↓
-UI-001
-   ↓
-Reviewer
-   ↓
-QA
-```
-
-If the Reviewer finds a blocking problem:
-
-```text
-Reviewer
-   ↓
-Backend / Frontend Fix
-   ↓
-Reviewer
-```
-
-If QA fails:
-
-```text
-QA
- ↓
-Responsible Agent Fix
- ↓
-Reviewer
- ↓
-QA
-```
-
-The Lead reports completion only after:
-
-```text
-Review = PASS
-QA = PASS
-```
-
----
-
-## Current Limitations
-
-This repository provides both the agent specification and a standalone, persistent orchestration runtime through the `amiral` CLI.
-
-### Runtime and legacy scripts
-
-The runtime scripts are implemented and remain available as backward-compatible wrappers:
-
-```text
-scripts/start-team.ts
-scripts/assign-task.ts
-scripts/run-workflow.ts
-scripts/validate-team.ts
-```
-
-Product usage should prefer `amiral`; scripts remain useful for compatibility and focused diagnostics.
-
----
-
-### Empty Workflow Files
-
-The following workflow files currently exist but are empty:
-
-```text
-.opencode/workflows/code-review.md
-.opencode/workflows/release.md
-```
-
-The active workflow definitions are currently:
-
-- Feature
-- Bug Fix
-- Refactor
-
----
-
-### Persistent task state
-
-Task and workflow state is persisted under `tasks/`, with plans and integration artifacts stored in their corresponding local runtime directories.
-
-Persistent runtime files include:
-
-```text
-tasks.json
-workflow-state.json
-SQLite
-```
-
-This supports status inspection, retries, and recovery after interruption.
-
----
-
-### `team.yaml` Is Declarative Metadata
-
-`team.yaml` is parsed by the executable runtime for agents, providers, scheduling, retry, and quality-gate configuration.
-
----
-
-## Runtime Architecture
-
-The persistent execution layer now follows this flow:
-
-```text
-User
- ↓
-Lead
- ↓
-Planner
- ↓
-tasks.json
- ↓
-Task Scheduler
- ↓
-┌───────────┬────────────┬──────────┐
-│ Frontend  │ Backend    │ Database │
-└───────────┴────────────┴──────────┘
-             ↓
-       Agent Results
-             ↓
-        State Manager
-             ↓
-          Reviewer
-             ↓
-             QA
-             ↓
-      Workflow Result
-```
-
-Runtime state is local and gitignored:
-
-```text
-tasks/<workflow-id>/
-├── state.json
+plans/<plan-id>/
+├── planner-result.json
 ├── task-graph.json
-└── history.json
+├── planner-result.raw.txt
+├── planner-result.raw.json
+└── planner-diagnostics.json          # online planning; failed attempts may also be saved
+
+tasks/
+├── .active-workflow
+└── <workflow-id>/
+    ├── state.json
+    ├── task-graph.json
+    ├── history.json
+    ├── requests/                     # directory name is configurable
+    └── results/
+
+.amiral/
+├── amiral.lock
+├── amiral.lock.guard                 # transient internal mutex; stale recovery may remove it
+├── worktrees/<workflow-id>/...       # task worktrees
+└── integration/<workflow-id>/...     # integrated tree and gate artifacts
 ```
 
-A possible workflow state:
+These paths are local runtime artifacts and the initializer adds them to `.gitignore`. There is no documented SQLite state store: JSON files are authoritative. Do not hand-edit state while a command holds `.amiral/amiral.lock`.
 
-```json
-{
-  "workflow": "feature",
-  "status": "running",
-  "tasks": {
-    "DB-001": "completed",
-    "API-001": "in_progress",
-    "UI-001": "pending"
-  }
-}
+Workflow resolution without `--workflow` uses `tasks/.active-workflow`; if absent, a sole workflow is selected automatically, while multiple workflows require `amiral workflow use <id>` or an explicit ID.
+
+`run` stops safely for these reasons:
+
+- `completed`: all implementation/fix work integrated, review passed, and QA passed.
+- `retry_scheduled`: transient provider retry is waiting; exit code 0, with `nextRetryAt` when known. Run again after that time.
+- `failed`: non-retryable/exhausted task failure; inspect state/results, reset with `retry`, then run again.
+- `blocked`: workflow/task blocking; inspect status/history and resolve or manually reset as appropriate.
+- `needs_input`: cancelled workflow, blocked/failed gate, review-fix exhaustion, or the 25-iteration safety bound. The safety-bound message explicitly permits another run.
+- `max_review_rounds`: review changes could not progress within configured rounds; workflow is blocked.
+- `no_progress`: no schedulable task and no pending retry; inspect dependencies and history.
+- `interrupted`: the first `SIGINT`/`SIGTERM` requests a safe stop before the next mutation and exits 130. A second signal terminates immediately, so use it only when necessary.
+
+Resume does not re-plan:
+
+```bash
+amiral status --workflow feature-cd34ef56
+amiral workflow history feature-cd34ef56 --limit 50
+amiral run --workflow feature-cd34ef56
 ```
 
-This allows workflows to resume after interrupted sessions and makes execution state explicit.
+Commands that mutate shared runtime state use a project lock. If another process owns it, wait for that process or diagnose a genuinely stale owner; do not delete an active lock blindly.
 
----
+## Troubleshooting
 
-## Strengths of the Architecture
+### “No Amiral project found”
 
-The current design has several strong properties.
+Run from the intended tree, verify `team.yaml` exists in an ancestor, or initialize the project. `amiral config path` confirms discovery.
 
-### Lead-Only Orchestration
+### Provider executable/authentication failure
 
-Only one agent is responsible for coordination, reducing nested-agent chaos and conflicting decisions.
+Run `amiral doctor --verbose` and `amiral config show`; verify `providers.<name>.binary`, `enabled`, PATH resolution, and provider login outside Amiral. Provider errors may be retried according to `team.yaml`; diagnostics are persisted for planning failures.
 
-### Planning Is Separated From Implementation
+### More than one workflow and none active
 
-The Planner cannot edit source code, helping keep architecture analysis independent from implementation.
+```bash
+amiral workflow list
+amiral workflow use <workflow-id>
+```
 
-### Review Is Independent
+Alternatively pass `--workflow` explicitly.
 
-The Reviewer is not supposed to fix the implementation it reviews.
+### Dirty tree or merge conflict
 
-### Explicit Dependency Graph
+Commit/stash only your own intended changes, preserve unrelated work, inspect task/integration worktrees, and retry after resolving the underlying Git condition. Do not use destructive resets as a routine fix.
 
-Tasks are scheduled according to dependencies instead of being executed in arbitrary order.
+### A run returned successfully but is not complete
 
-### Strong Completion Gate
+Check the JSON/text `reason`. `retry_scheduled` intentionally returns 0 even though execution is paused. Wait until `nextRetryAt`, then resume. Only `reason: "completed"` means all gates passed.
 
-A developer saying "done" does not mean the workflow is complete.
+### A task failed or blocked
 
-The required lifecycle is:
+```bash
+amiral status --workflow <id> --json
+amiral workflow history <id> --limit 100
+amiral workflow show <id> --json
+amiral retry <task-id> --workflow <id>
+amiral run --workflow <id>
+```
+
+Use `--force` only after understanding why a reset/cancellation/cleanup is restricted.
+
+### JSON parsing fails
+
+Put `--json` on the command, parse stdout only, and retain stderr separately. Do not merge streams (`2>&1`) when consuming JSON. Prompts requiring confirmation need `--force` in CI.
+
+## Architecture and repository layout
 
 ```text
-Implementation
-+
-Integration
-+
-Review
-+
-QA
+AGENTS.md                     team-wide operating rules
+team.yaml                     agents, providers, capacities, workflows
+.opencode/
+├── agents/                   role instructions
+├── workflows/                feature, bugfix, refactor processes
+├── orchestration/            execution/dependency/error protocols
+├── contracts/                task, agent-result, review contracts
+├── policies/                 architecture, Git, review, testing rules
+├── prompts/ and schemas/     machine prompts and validation contracts
+└── opencode.json             OpenCode configuration
+src/cli/                      product CLI definitions
+scripts/lib/                  orchestration runtime
+templates/init/               files installed by `amiral init`
+tests/                        Node test suite
+memory/                       architecture, conventions, decisions, lessons
 ```
 
-### Lazy Skill Loading
+The active packaged workflows are `feature`, `bugfix`, and `refactor`. Agents include Lead, Planner, Frontend, Backend, Database, DevOps, Reviewer, and QA. Agent definitions describe responsibility; workflows describe process; policies impose cross-cutting rules; contracts define machine-readable handoffs; skills provide specialized knowledge only when relevant.
 
-Skills can be loaded only when relevant, reducing unnecessary context and token usage.
+## Source development
 
-### Existing Architecture First
+Clone this repository and install the locked dependencies:
 
-Agents are repeatedly instructed to inspect and follow the current repository rather than inventing a new architecture.
-
----
-
-## Design Summary
-
-The repository can be described as:
-
-> A dependency-aware, role-based multi-agent software development team specification for OpenCode with planning, specialized implementation, review, QA, policy enforcement, and structured task contracts.
-
-It combines an **AI engineering team specification** with an installable orchestration CLI and persistent workflow runtime.
-
-Its intended architecture is:
-
-```text
-                 USER
-                   │
-                   ▼
-                 LEAD
-                   │
-           ┌───────┴───────┐
-           ▼               ▼
-        Workflow         Planner
-                           │
-                           ▼
-                      Task Graph
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-          Frontend      Backend      Database
-              │            │            │
-              └────────────┼────────────┘
-                           ▼
-                      Integration
-                           │
-                           ▼
-                        Reviewer
-                           │
-                   ┌───────┴────────┐
-                   │                │
-                 PASS       CHANGES_REQUESTED
-                   │                │
-                   ▼                └──→ Developer
-                  QA
-                   │
-              ┌────┴────┐
-            PASS       FAIL
-              │          │
-              ▼          └──→ Developer
-           COMPLETE
+```bash
+git clone https://github.com/atahandevelopment/opencode-ai-team.git
+cd opencode-ai-team
+npm ci
+npm run typecheck
+npm test
+npm run build
+node dist/src/cli/index.js --help
 ```
 
----
+Useful scripts:
 
-## Roadmap Ideas
+| Script | Purpose |
+| --- | --- |
+| `npm run typecheck` | Type-check without producing the distributable build. |
+| `npm test` | Run the Node test suite through `tsx`. |
+| `npm run build` | Compile with `tsconfig.build.json` into `dist/`. |
+| `npm run validate:team -- <task-graph|agent-result|review-result|planner-result> <file>` | Validate a JSON contract artifact against the selected schema. |
+| `npm pack --dry-run` | Inspect publish contents; `prepack` cleans and rebuilds `dist`. |
 
-Potential future improvements:
-
-- Add a web dashboard and remote control
-- Add distributed and multi-user coordination
-- Add more execution providers and provider load balancing
-- Add token/cost tracking
-- Complete the release workflow
-- Add CI validation for agent definitions
-- Add JSON Schema validation for task contracts
-- Add resumable workflows
-- Add task retry policies
-- Add structured telemetry
-- Add example projects
-- Add OpenCode installation/setup automation
-
----
+For source-tree CLI testing, build first and invoke `node dist/src/cli/index.js ...`; the published `amiral` binary points to that compiled entry. The legacy `scripts/*.ts` entry points remain compatibility/internal tools, but product usage should prefer the CLI.
 
 ## License
 
-No license has been defined yet.
-
-If this project is intended for public reuse, consider adding a license such as MIT, Apache-2.0, or another license appropriate for the project.
+This package declares the ISC license in `package.json`.
