@@ -10,12 +10,24 @@ The goal is to make AI-assisted software development behave more like a structur
 
 ## Product quick start
 
+If you want setup Amiral AI as global
 ```bash
-npm install amiral-ai || npm install -g amiral-ai
+npm install -g amiral-ai
+```
+or just for one project
+```bash
+npm install amiral-ai
+```
+```bash
 npm run build
+```
+```bash
 amiral --version
+```
+```bash
 amiral --help
-
+```
+``` bash
 # In a Git project:
 amiral init --minimal
 amiral plan "Add authentication" --type feature
