@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -26,6 +26,8 @@ test("packed CLI shims preserve requests through plan and run", { timeout: 120_0
     const paths = packed[0].files.map(file => file.path);
     assert.ok(paths.includes("dist/src/cli/index.js"));
     assert.ok(paths.includes("templates/init/.opencode/agents/lead.md"));
+    assert.ok(paths.includes("vendor/skills/using-agent-skills/SKILL.md"));
+    assert.ok(paths.every(path => !path.startsWith("vendor/addy-agent-skills/")));
 
     const install = runNpm(["install", "--ignore-scripts", resolve(space, packed[0].filename)], space);
     assert.equal(install.status, 0, install.stderr);
@@ -38,6 +40,16 @@ test("packed CLI shims preserve requests through plan and run", { timeout: 120_0
     assert.equal(runShim(shim, ["--version"], space, {}).stdout.trim(), repositoryManifest.version);
     const init = runShim(shim, ["init"], space, {});
     assert.equal(init.status, 0, init.stderr);
+    assert.deepEqual(
+      await readFile(resolve(space, "vendor", "skills", "using-agent-skills", "SKILL.md")),
+      await readFile(resolve(repoRoot, "vendor", "skills", "using-agent-skills", "SKILL.md")),
+    );
+
+    const minimalRoot = resolve(space, "minimal consumer");
+    await mkdir(minimalRoot);
+    const minimal = runShim(shim, ["init", "--minimal"], minimalRoot, {});
+    assert.equal(minimal.status, 0, minimal.stderr);
+    await assert.rejects(readFile(resolve(minimalRoot, "vendor", "skills", "using-agent-skills", "SKILL.md")), { code: "ENOENT" });
 
     const sourceLead = await readFile(resolve(repoRoot, ".opencode", "agents", "lead.md"));
     const templateLead = await readFile(resolve(repoRoot, "templates", "init", ".opencode", "agents", "lead.md"));
@@ -66,6 +78,20 @@ test("packed CLI shims preserve requests through plan and run", { timeout: 120_0
       assert.ok(prompts.length, `${mode} must invoke the provider through the installed CLI shim`);
       assert.ok(prompts.every(prompt => prompt.includes(request)), JSON.stringify({ mode, prompts }));
       assert.ok(prompts.every(prompt => !/Original User Request[^]*Derived login title/.test(prompt)));
+    }
+
+    await rm(resolve(packageRoot, "vendor", "skills"), { recursive: true, force: true });
+    const minimalWithoutSkills = resolve(space, "minimal without package skills");
+    await mkdir(minimalWithoutSkills);
+    assert.equal(runShim(shim, ["init", "--minimal"], minimalWithoutSkills, {}).status, 0);
+    const normalWithoutSkills = resolve(space, "normal without package skills");
+    await mkdir(normalWithoutSkills);
+    const missingSkills = runShim(shim, ["init"], normalWithoutSkills, {});
+    assert.notEqual(missingSkills.status, 0);
+    assert.match(missingSkills.stderr, /missing or has an invalid vendor\/skills.*Reinstall amiral-ai/i);
+    assert.doesNotMatch(missingSkills.stderr, /ENOENT/);
+    for (const output of ["team.yaml", ".opencode", ".gitignore", "vendor"]) {
+      await assert.rejects(access(resolve(normalWithoutSkills, output)), { code: "ENOENT" });
     }
   } finally { await rm(space, { recursive: true, force: true, maxRetries: 3 }); }
 });

@@ -2,7 +2,9 @@
  * Phase 14 STAGE 1b — Project initialization service.
  *
  * Copies the whitelisted init templates from templates/init/ into a target
- * project root:
+ * project root. Full initialization also copies the packaged vendor/skills/
+ * tree to vendor/skills/ in the target; minimal initialization does not read
+ * or validate that tree.
  *
  *   team.yaml
  *   .opencode/opencode.json
@@ -56,6 +58,7 @@ const PACKAGE_ROOT = existsSync(resolve(SOURCE_PACKAGE_ROOT, "templates", "init"
   : resolve(SOURCE_PACKAGE_ROOT, "..");
 
 const TEMPLATE_ROOT = resolve(PACKAGE_ROOT, "templates", "init");
+const VENDOR_SKILLS_ROOT = resolve(PACKAGE_ROOT, "vendor", "skills");
 
 const GITIGNORE_MARKER_START = "# >>> Amiral >>>";
 const GITIGNORE_MARKER_END = "# <<< Amiral <<<";
@@ -72,8 +75,8 @@ const GITIGNORE_BLOCK = [
   "",
 ].join("\n");
 
-type TemplateFile = {
-  /** Posix relative path inside templates/init/. */
+export type CollectedFile = {
+  /** Posix path relative to the collected source root. */
   relativePath: string;
   absolutePath: string;
 };
@@ -82,20 +85,40 @@ function toPosix(value: string): string {
   return value.split("\\").join("/");
 }
 
+/** Compare strings by Unicode code point, independent of the host locale. */
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left, character => character.codePointAt(0)!);
+  const rightPoints = Array.from(right, character => character.codePointAt(0)!);
+  const length = Math.min(leftPoints.length, rightPoints.length);
+
+  for (let index = 0; index < length; index += 1) {
+    if (leftPoints[index] !== rightPoints[index]) {
+      return leftPoints[index] - rightPoints[index];
+    }
+  }
+
+  return leftPoints.length - rightPoints.length;
+}
+
 /**
- * Recursively collect template files under dir, sorted deterministically by
- * posix relative path so output order is stable across platforms.
+ * Recursively collect regular files without following symlinks, sorted by
+ * POSIX relative path so output order is stable across platforms.
  */
-async function collectTemplateFiles(
-  dir: string,
-): Promise<TemplateFile[]> {
-  const files: TemplateFile[] = [];
+export async function collectFiles(sourceRoot: string): Promise<CollectedFile[]> {
+  const files: CollectedFile[] = [];
+  const rootInfo = await lstat(sourceRoot);
+  if (rootInfo.isSymbolicLink()) {
+    throw new Error(`Refusing to follow symbolic link source: ${sourceRoot}`);
+  }
+  if (!rootInfo.isDirectory()) {
+    throw new Error(`File collection source is not a directory: ${sourceRoot}`);
+  }
 
   async function walk(current: string): Promise<void> {
     const entries = await readdir(current, { withFileTypes: true });
 
     for (const entry of entries.sort((a, b) =>
-      a.name.localeCompare(b.name),
+      compareCodePoints(a.name, b.name),
     )) {
       const entryPath = join(current, entry.name);
 
@@ -103,16 +126,16 @@ async function collectTemplateFiles(
         await walk(entryPath);
       } else if (entry.isFile()) {
         files.push({
-          relativePath: toPosix(relative(TEMPLATE_ROOT, entryPath)),
+          relativePath: toPosix(relative(sourceRoot, entryPath)),
           absolutePath: entryPath,
         });
       }
     }
   }
 
-  await walk(dir);
+  await walk(sourceRoot);
 
-  return files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return files.sort((a, b) => compareCodePoints(a.relativePath, b.relativePath));
 }
 
 /** Minimal mode keeps essentials, including the machine planning agent. */
@@ -168,18 +191,21 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function copyTemplateFile(
-  file: TemplateFile,
+/** Copy one collected file beneath an optional POSIX destination prefix. */
+export async function copyFileSafely(
+  file: CollectedFile,
   targetRoot: string,
   force: boolean,
+  destinationPrefix = "",
 ): Promise<InitStep> {
-  const targetPath = resolve(targetRoot, ...file.relativePath.split("/"));
+  const outputPath = [destinationPrefix, file.relativePath].filter(Boolean).join("/");
+  const targetPath = resolve(targetRoot, ...outputPath.split("/"));
   await assertSafeTarget(targetRoot, targetPath);
 
   const exists = await fileExists(targetPath);
 
   if (exists && !force) {
-    return { action: "exists", path: file.relativePath };
+    return { action: "exists", path: outputPath };
   }
 
   await mkdir(dirname(targetPath), { recursive: true });
@@ -190,7 +216,7 @@ async function copyTemplateFile(
 
   return {
     action: exists ? "overwritten" : "created",
-    path: file.relativePath,
+    path: outputPath,
   };
 }
 
@@ -258,8 +284,8 @@ async function ensureGitignore(
 
 /**
  * Initialize an Amiral project layout from the packaged templates.
- * Deterministic order: template files (sorted), then .gitignore handling,
- * then the optional git warning.
+ * Deterministic order: template files (sorted), then normal-mode vendor
+ * skills (sorted), then .gitignore handling, then the optional git warning.
  */
 export async function initAmiralProject(
   options: InitAmiralProjectOptions = {},
@@ -272,14 +298,36 @@ export async function initAmiralProject(
 
   const steps: InitStep[] = [];
 
-  const templates = await collectTemplateFiles(TEMPLATE_ROOT);
+  const templates = await collectFiles(TEMPLATE_ROOT);
+
+  // Preflight every packaged input before touching the target. In particular,
+  // a broken package must not leave a partially initialized project behind.
+  // Keep this branch wholly outside minimal mode: minimal initialization must
+  // neither read nor validate the optional bundled skills tree.
+  let skills: CollectedFile[] = [];
+  if (!minimal) {
+    try {
+      skills = await collectFiles(VENDOR_SKILLS_ROOT);
+    } catch (error) {
+      throw new Error(
+        `Cannot initialize bundled skills: the package is missing or has an invalid vendor/skills directory. Reinstall amiral-ai and try again.`,
+        { cause: error },
+      );
+    }
+  }
 
   for (const file of templates) {
     if (minimal && !isIncludedInMinimal(file.relativePath)) {
       continue;
     }
 
-    steps.push(await copyTemplateFile(file, root, options.force === true));
+    steps.push(await copyFileSafely(file, root, options.force === true));
+  }
+
+  if (!minimal) {
+    for (const file of skills) {
+      steps.push(await copyFileSafely(file, root, options.force === true, "vendor/skills"));
+    }
   }
 
   steps.push(await ensureGitignore(root));

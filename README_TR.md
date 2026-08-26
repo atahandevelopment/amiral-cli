@@ -107,10 +107,10 @@ amiral config validate
 amiral init [--minimal] [--force]
 ```
 
-- `--minimal`: yalnızca `team.yaml`, iş akışı tanımları, şemalar ve makine planlama ajanını kurar.
+- `--minimal`: yalnızca `team.yaml`, iş akışı tanımları, şemalar ve makine planlama ajanını kurar; paketlenmiş becerileri okumaz, doğrulamaz veya kurmaz.
 - `--force`: mevcut şablon dosyalarının üzerine yazar. Dikkatli kullanın; bu seçenek olmadan mevcut dosyalar korunur.
 
-Tam başlatma, `team.yaml` ve `.opencode/` içindeki izin listesindeki şablonları (ajanlar, iş akışları, sözleşmeler, orkestrasyon, politikalar, istemler, şemalar ve OpenCode yapılandırması) kurar. Başlatma ayrıca `.gitignore` dosyasına işaretçilerle sınırlanmış bir Amiral bloğu ekler; bloğu çoğaltmaz ve blok dışındaki içeriğin üzerine yazmaz. Güvenli olmayan sembolik bağlantı hedeflerini reddeder ve hiçbir zaman paket manifestlerini, bağımlılıkları veya çalışma zamanı durumunu kurmaz.
+Tam başlatma, `team.yaml` ve `.opencode/` içindeki izin listesindeki şablonları (ajanlar, iş akışları, sözleşmeler, orkestrasyon, politikalar, istemler, şemalar ve OpenCode yapılandırması) kurar; ardından paketteki `vendor/skills/**` ağacını hedefteki `vendor/skills/**` konumuna kopyalar. Başlatma ayrıca `.gitignore` dosyasına işaretçilerle sınırlanmış bir Amiral bloğu ekler; bloğu çoğaltmaz ve blok dışındaki içeriğin üzerine yazmaz. Güvenli olmayan sembolik bağlantı hedeflerini reddeder ve hiçbir zaman paket manifestlerini, bağımlılıkları veya çalışma zamanı durumunu kurmaz.
 
 ## Proje kökünü bulma
 
@@ -511,6 +511,7 @@ team.yaml                     ajanlar, sağlayıcılar, kapasiteler, iş akışl
 src/cli/                      ürün CLI tanımları
 scripts/lib/                  orkestrasyon çalışma zamanı
 templates/init/               `amiral init` tarafından kurulan dosyalar
+vendor/skills/                normal `amiral init` tarafından kurulan paketlenmiş beceriler
 tests/                        Node test paketi
 memory/                       mimari, kurallar, kararlar, dersler
 ```

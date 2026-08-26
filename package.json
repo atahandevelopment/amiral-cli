@@ -11,7 +11,7 @@
     "README.md",
     "README_TR.md",
     "assets/amiral-ai.png",
-    "vendor",
+    "vendor/skills",
     "memory"
   ],
   "engines": {

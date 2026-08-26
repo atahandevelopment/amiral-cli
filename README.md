@@ -107,10 +107,10 @@ amiral config validate
 amiral init [--minimal] [--force]
 ```
 
-- `--minimal`: install only `team.yaml`, workflow definitions, schemas, and the machine planning agent.
+- `--minimal`: install only `team.yaml`, workflow definitions, schemas, and the machine planning agent; bundled skills are not read, validated, or installed.
 - `--force`: overwrite existing template files. Use carefully; without it, existing files are retained.
 
-Full initialization installs the whitelisted templates in `team.yaml` and `.opencode/` (agents, workflows, contracts, orchestration, policies, prompts, schemas, and OpenCode configuration). Initialization also adds a marker-delimited Amiral block to `.gitignore`; it does not duplicate the block and does not overwrite content outside it. It rejects unsafe symbolic-link destinations and never installs package manifests, dependencies, or runtime state.
+Full initialization installs the whitelisted templates in `team.yaml` and `.opencode/` (agents, workflows, contracts, orchestration, policies, prompts, schemas, and OpenCode configuration), then copies the packaged `vendor/skills/**` tree to the target's `vendor/skills/**`. Initialization also adds a marker-delimited Amiral block to `.gitignore`; it does not duplicate the block and does not overwrite content outside it. It rejects unsafe symbolic-link destinations and never installs package manifests, dependencies, or runtime state.
 
 ## Project-root discovery
 
@@ -511,6 +511,7 @@ team.yaml                     agents, providers, capacities, workflows
 src/cli/                      product CLI definitions
 scripts/lib/                  orchestration runtime
 templates/init/               files installed by `amiral init`
+vendor/skills/                bundled skills installed by normal `amiral init`
 tests/                        Node test suite
 memory/                       architecture, conventions, decisions, lessons
 ```
