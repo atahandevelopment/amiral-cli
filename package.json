@@ -50,14 +50,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atahandevelopment/opencode-ai-team.git"
+    "url": "git+https://github.com/atahandevelopment/amiral-ai.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/atahandevelopment/opencode-ai-team/issues"
+    "url": "https://github.com/atahandevelopment/amiral-ai/issues"
   },
-  "homepage": "https://github.com/atahandevelopment/opencode-ai-team#readme"
+  "homepage": "https://github.com/atahandevelopment/amiral-ai#readme"
 }

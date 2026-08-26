@@ -1,10 +1,184 @@
-# Amiral AI Orchestration Team
+<a id="top"></a>
 
-[English](./README.md) | [Türkçe](./README_TR.md)
+[English](./README.md) | [Türkçe](./README_TR.md) | [Deutsch](./README_DE.md) | [Français](./README_FR.md)
 
-![AMIRAL_Logo](./assets/amiral-ai.png)
+![Amiral AI](./assets/amiral-ai.png)
 
-Amiral is a persistent, dependency-aware multi-agent engineering workflow for [OpenCode](https://opencode.ai/). Its `amiral` CLI plans work, assigns tasks to specialized agents in isolated Git worktrees, integrates their results, and enforces independent review and QA gates.
+# Amiral AI
+
+> A dependency-aware engineering workflow for AI coding teams.
+
+Amiral is a dependency-aware multi-agent software engineering orchestrator. It coordinates coding agents instead of replacing them, giving them a structured delivery process with isolated execution, persistent workflows, controlled integration, independent review, and QA.
+
+**Don't just run more agents. Give them an engineering process.**
+
+```text
+Plan → Decompose → Schedule → Execute → Integrate → Review → Fix → QA → Complete
+```
+
+## Table of Contents
+
+- [Why Amiral?](#why-amiral)
+- [How it works](#how-it-works)
+- [Key differentiators](#key-differentiators)
+- [Quick start](#quick-start)
+- [How Amiral differs](#comparison)
+- [Framework positioning](#framework-positioning)
+- [Philosophy](#philosophy)
+- [Prerequisites and installation](#installation)
+- [Initialization](#initialization)
+- [Configuration and project discovery](#configuration)
+- [Command reference](#commands)
+- [Persistence, stopping, and resume](#persistence)
+- [Troubleshooting](#troubleshooting)
+- [Architecture and repository layout](#architecture)
+
+<a id="why-amiral"></a>
+## Why Amiral?
+
+How do you safely coordinate multiple coding agents working on the same software project? Launching several agents does not decide who owns each task, what must finish first, which work can safely overlap, or how independent changes become one reviewed result.
+
+Amiral provides that coordination layer. It decomposes requests, models dependencies, schedules within capacity, isolates changes, integrates them deliberately, enforces Reviewer and QA gates, records failures, and resumes interrupted work. The benefit comes from explicit process and responsibility—not agent count alone.
+
+<a id="how-it-works"></a>
+## How it works
+
+```text
+User Request
+     │
+     ▼
+   Planner ──► Dependency Graph
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+   Backend worktree    Frontend worktree
+          └─────────┬─────────┘
+                    ▼
+              Integration
+                    ▼
+                 Review
+             changes requested?
+               │           │
+              yes          no
+               ▼            ▼
+           Fix Tasks       QA
+               └───────────►│
+                            ▼
+                         Complete
+```
+
+<a id="key-differentiators"></a>
+## Key differentiators
+
+### Planning is a first-class artifact
+
+`amiral plan "Add authentication"` validates and persists an inspectable, reusable plan under `plans/`; it does **not** implement it. This supports human review or approval before `amiral run --plan <plan-id>` executes the saved graph.
+
+### Dependency-aware execution
+
+Parallelism does not mean “launch as many agents as possible.” A task becomes schedulable only when its dependencies are complete. Independent tasks may run concurrently when safe and within configured agent/provider capacity.
+
+```text
+DB-001 ─────► API-001 ─────► UI-002
+                    │
+                    └──────► TEST-001
+
+UI-001 ────────────────────► UI-002
+```
+
+### Specialized roles and isolated delivery
+
+The supplied roles are Lead, Planner, Frontend, Backend, Database, DevOps, Reviewer, and QA. The Planner plans but does not implement; implementation agents work on assigned tasks; Reviewer evaluates the integrated result independently; QA verifies it independently.
+
+Implementation agents use isolated Git worktrees. Worktree isolation is not presented as unique; its value here is its place in the complete lifecycle:
+
+```text
+repository
+├── main workspace
+├── .amiral/worktrees/<workflow-id>/...
+└── .amiral/integration/<workflow-id>/...
+
+task execution → isolated worktrees → integration workspace → review → QA
+```
+
+### Independent Review and QA gates
+
+Review is a gate, not a suggestion. Its statuses are `PASS`, `CHANGES_REQUESTED`, and `BLOCKED`. Changes requested create fix tasks and another review, bounded by `quality.max_review_rounds` (a positive integer, default `3`); Amiral does not claim unlimited autonomous fixing.
+
+For applicable, non-trivial workflows, completion means implementation and integration succeeded, Review returned `PASS`, and QA returned `PASS`. “The agent finished coding” is not the definition of done; this process does not guarantee more than the checks actually performed.
+
+### Persistent workflows, explicit outcomes, automation-friendly CLI
+
+Workflow state and history are persisted as local JSON. Resume continues existing state rather than re-planning:
+
+```bash
+amiral status
+amiral workflow history <workflow-id>
+amiral run --workflow <workflow-id>
+```
+
+Task states are `pending`, `in_progress`, `retry_wait`, `completed`, `failed`, `blocked`, and `cancelled`. Workflow states are `planned`, `running`, `blocked`, `failed`, `completed`, and `cancelled`. These persisted states are distinct from `run` stop reasons: `completed`, `retry_scheduled`, `failed`, `blocked`, `needs_input`, `max_review_rounds`, `no_progress`, and `interrupted`. Keeping them explicit prevents failed or paused automation from appearing complete.
+
+Global JSON output, diagnostics, retry/history controls, and stable exit-code categories support scripts, CI environments, and future control planes without claiming built-in CI orchestration.
+
+<a id="quick-start"></a>
+## Quick start
+
+```bash
+npm install --global amiral-ai
+cd my-project
+git init # only when needed
+amiral init
+amiral doctor
+amiral plan "Add authentication"
+amiral run --plan <generated-plan-id>
+```
+
+One-step alternative:
+
+```bash
+amiral run "Add authentication"
+```
+
+`plan` = inspect before implementation; `run` = execute.
+
+<a id="comparison"></a>
+## How Amiral differs
+
+| Capability | Single coding agent | Parallel agent launcher | General multi-agent framework | Amiral |
+| --- | --- | --- | --- | --- |
+| Specialized agents | Limited | Usually | Framework-dependent | Supplied roles |
+| Isolated Git worktrees | Usually no | Often | Custom | Yes |
+| Persistent dependency graph and scheduling | Usually no | Varies | Build/configure it | Yes |
+| Saved plan without execution | Varies | Varies | Build/configure it | Yes |
+| Controlled integration workspace | Usually no | Varies | Custom | Yes |
+| Independent Review → fix gate | Varies | Varies | Custom | Yes |
+| Independent QA gate | Rare | Varies | Custom | Yes |
+| Persistent/resumable workflow | Varies | Varies | Custom | Yes |
+| Retry/history and machine-readable CLI | Limited | Varies | Framework-dependent | Yes |
+
+Parallel launchers answer how to run work simultaneously; Amiral also answers who owns it, what must finish first, how results integrate, who reviews and tests them, and what happens after failure or interruption.
+
+<a id="framework-positioning"></a>
+## Framework positioning
+
+General multi-agent frameworks provide primitives for arbitrary agent systems and may be the right abstraction when building a custom platform. Amiral is opinionated specifically around software delivery:
+
+```text
+Requirement → Engineering Plan → Task Dependencies → Specialist Implementation
+→ Git Integration → Code Review → QA → Completed Change
+```
+
+<a id="philosophy"></a>
+## Philosophy
+
+Plans should be inspectable. Dependencies should control execution. Parallel agents should be isolated. Integration should be deliberate. The code-writing agent should not be the only judge. Failures should remain failures until resolved, and interrupted workflows should be resumable.
+
+> AI agents should work like an engineering team—not a collection of unrelated terminals.
+
+[↑ Back to top](#top)
+
+<a id="installation"></a>
 
 ## The most important distinction: `plan` does not execute
 
@@ -82,7 +256,7 @@ npm list amiral-ai                       # local installed version
 npm list --global amiral-ai              # global installed version
 ```
 
-The package version is read from its installed `package.json`; this repository currently declares **0.1.2**. If an upgrade still reports an old version, determine which executable is being resolved (`where amiral` on Windows, `which -a amiral` on macOS/Linux), remove conflicting global/local installs, clear only npm's normal cache if npm reports corruption, and reinstall. Avoid blindly combining a stale global binary with a newer local package.
+The package version is read from its installed `package.json`; this repository currently declares **0.1.5**. If an upgrade still reports an old version, determine which executable is being resolved (`where amiral` on Windows, `which -a amiral` on macOS/Linux), remove conflicting global/local installs, clear only npm's normal cache if npm reports corruption, and reinstall. Avoid blindly combining a stale global binary with a newer local package.
 
 ```bash
 npm update --save-dev amiral-ai           # update a local dependency within its range
@@ -92,6 +266,7 @@ npx --yes amiral-ai@latest --version      # explicitly use the latest registry r
 
 Reinstalling the CLI does not migrate or delete project runtime state. Review release changes before using a newer CLI against existing `tasks/` data.
 
+<a id="initialization"></a>
 ## Initialize a project
 
 Run initialization in the intended project root:
@@ -112,6 +287,7 @@ amiral init [--minimal] [--force]
 
 Full initialization installs the whitelisted templates in `team.yaml` and `.opencode/` (agents, workflows, contracts, orchestration, policies, prompts, schemas, and OpenCode configuration), then copies the packaged `vendor/skills/**` tree to the target's `vendor/skills/**`. Initialization also adds a marker-delimited Amiral block to `.gitignore`; it does not duplicate the block and does not overwrite content outside it. It rejects unsafe symbolic-link destinations and never installs package manifests, dependencies, or runtime state.
 
+<a id="configuration"></a>
 ## Project-root discovery
 
 Except for `init`, commands can be run in the project root or any nested directory, including paths containing spaces. Amiral walks upward:
@@ -215,6 +391,7 @@ Exit codes are stable CLI categories:
 | 6 | Validation/schema failure. |
 | 130 | Interrupted. |
 
+<a id="commands"></a>
 ## Command reference
 
 ### `amiral plan`
@@ -399,6 +576,7 @@ amiral config validate
 
 Redaction is a display safeguard, not permission to store secrets in `team.yaml`.
 
+<a id="persistence"></a>
 ## Persistence, stopping, and resume
 
 Plans and workflows are different persistent objects:
@@ -452,6 +630,7 @@ amiral run --workflow feature-cd34ef56
 
 Commands that mutate shared runtime state use a project lock. If another process owns it, wait for that process or diagnose a genuinely stale owner; do not delete an active lock blindly.
 
+<a id="troubleshooting"></a>
 ## Troubleshooting
 
 ### “No Amiral project found”
@@ -495,6 +674,7 @@ Use `--force` only after understanding why a reset/cancellation/cleanup is restr
 
 Put `--json` on the command, parse stdout only, and retain stderr separately. Do not merge streams (`2>&1`) when consuming JSON. Prompts requiring confirmation need `--force` in CI.
 
+<a id="architecture"></a>
 ## Architecture and repository layout
 
 ```text
@@ -523,8 +703,8 @@ The active packaged workflows are `feature`, `bugfix`, and `refactor`. Agents in
 Clone this repository and install the locked dependencies:
 
 ```bash
-git clone https://github.com/atahandevelopment/opencode-ai-team.git
-cd opencode-ai-team
+git clone https://github.com/atahandevelopment/amiral-ai.git
+cd amiral-ai
 npm ci
 npm run typecheck
 npm test

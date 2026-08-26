@@ -1,10 +1,184 @@
-# Amiral AI Orkestrasyon Ekibi
+<a id="top"></a>
 
-[English](./README.md) | [Türkçe](./README_TR.md)
+[English](./README.md) | [Türkçe](./README_TR.md) | [Deutsch](./README_DE.md) | [Français](./README_FR.md)
 
-![AMIRAL_Logo](./assets/amiral-ai.png)
+![Amiral AI](./assets/amiral-ai.png)
 
-Amiral, [OpenCode](https://opencode.ai/) için kalıcı ve bağımlılıkların farkında olan çok ajanlı bir mühendislik iş akışıdır. `amiral` CLI; işi planlar, görevleri yalıtılmış Git worktree'lerinde uzman ajanlara atar, sonuçlarını entegre eder ve bağımsız inceleme ile QA geçitlerini zorunlu kılar.
+# Amiral AI — Yazılım Teslimat Orkestrasyonu
+
+> AI kodlama ekipleri için bağımlılıkların farkında bir mühendislik workflow'u.
+
+Amiral, kodlama ajanlarının yerini almayan; onlara planlama, bağımlılığa göre zamanlama, yalıtılmış uygulama, kontrollü entegrasyon, bağımsız Review ve QA içeren yapılandırılmış bir teslimat süreci veren çok ajanlı yazılım mühendisliği orkestratörüdür.
+
+**Yalnızca daha fazla ajan çalıştırmayın. Onlara bir mühendislik süreci verin.**
+
+Amiral'in verdiği uçtan uca süreç:
+
+```text
+Plan → Decompose → Schedule → Execute → Integrate → Review → Fix → QA → Complete
+```
+
+## İçindekiler
+
+- [Neden Amiral?](#why-amiral)
+- [Nasıl çalışır?](#how-it-works)
+- [Temel farklar](#key-differentiators)
+- [Hızlı başlangıç](#quick-start)
+- [Karşılaştırma](#comparison)
+- [Framework konumlandırması](#framework-positioning)
+- [Felsefe](#philosophy)
+- [Kurulum](#installation)
+- [Başlatma](#initialization)
+- [Yapılandırma ve proje kökünü bulma](#configuration)
+- [Komut referansı](#commands)
+- [Kalıcılık ve sürdürme](#persistence)
+- [Sorun giderme](#troubleshooting)
+- [Mimari](#architecture)
+
+<a id="why-amiral"></a>
+## Neden Amiral?
+
+Aynı yazılım projesinde çalışan birden çok kodlama ajanını nasıl güvenle koordine edersiniz? Birkaç ajanı başlatmak; her task'ın kime ait olduğunu, önce neyin tamamlanması gerektiğini, hangi işlerin güvenle örtüşebileceğini veya bağımsız değişikliklerin incelenmiş tek bir sonuca nasıl dönüştürüleceğini belirlemez.
+
+Amiral bu koordinasyon katmanını sağlar. İstekleri task'lara ayrıştırır, dependency'leri modeller, yapılandırılmış kapasite içinde zamanlama yapar, değişiklikleri yalıtır, sonuçları kontrollü biçimde entegre eder, Reviewer ve QA geçitlerini uygular, hataları kaydeder ve kesintiye uğrayan işi kaldığı yerden devam ettirir. Avantaj yalnızca ajan sayısından değil, açık süreçten ve sorumluluk ayrımından gelir.
+
+<a id="how-it-works"></a>
+## Nasıl çalışır?
+
+```text
+User Request
+     │
+     ▼
+   Planner ──► Dependency Graph
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+   Backend worktree    Frontend worktree
+          └─────────┬─────────┘
+                    ▼
+              Integration
+                    ▼
+                 Review
+             changes requested?
+               │           │
+              yes          no
+               ▼            ▼
+           Fix Tasks       QA
+               └───────────►│
+                            ▼
+                         Complete
+```
+
+<a id="key-differentiators"></a>
+## Temel farklar
+
+### Plan birinci sınıf bir artifact'tır
+
+`amiral plan "Add authentication"`, `plans/` altında incelenebilir ve yeniden kullanılabilir bir planı doğrulayıp kalıcılaştırır; planı **uygulamaz**. Böylece `amiral run --plan <plan-id>` kaydedilmiş grafiği çalıştırmadan önce insan incelemesi veya onayı alınabilir.
+
+### Dependency'lerin farkında çalıştırma
+
+Paralellik, “olabildiğince çok ajan başlatmak” anlamına gelmez. Bir task ancak dependency'leri tamamlandıktan sonra zamanlanabilir. Bağımsız task'lar, güvenli olduğunda ve yapılandırılmış ajan/provider kapasitesi içinde eşzamanlı çalışabilir.
+
+```text
+DB-001 ─────► API-001 ─────► UI-002
+                    │
+                    └──────► TEST-001
+
+UI-001 ────────────────────► UI-002
+```
+
+### Uzman roller ve yalıtılmış teslimat
+
+Birlikte verilen roller Lead, Planner, Frontend, Backend, Database, DevOps, Reviewer ve QA'dir. Planner planlar ancak uygulama yapmaz; uygulama ajanları yalnızca atanmış task'larda çalışır; Reviewer entegre sonucu bağımsız olarak değerlendirir; QA ise bağımsız olarak doğrular.
+
+Uygulama ajanları yalıtılmış Git worktree'lerinde çalışır. Worktree yalıtımı benzersiz bir özellik olarak sunulmaz; buradaki değeri, eksiksiz yaşam döngüsündeki yerinden gelir:
+
+```text
+repository
+├── main workspace
+├── .amiral/worktrees/<workflow-id>/...
+└── .amiral/integration/<workflow-id>/...
+
+task execution → isolated worktrees → integration workspace → review → QA
+```
+
+### Bağımsız Review ve QA geçitleri
+
+Review bir öneri değil, workflow geçididir. Durumları `PASS`, `CHANGES_REQUESTED` ve `BLOCKED`'dır. İstenen değişiklikler düzeltme task'ları ve yeni bir Review oluşturur; bu döngü pozitif tamsayı olan `quality.max_review_rounds` ile sınırlıdır (varsayılan `3`). Amiral sınırsız otonom düzeltme iddiasında bulunmaz.
+
+Uygulanabilir ve önemsiz olmayan workflow'larda tamamlanma; uygulama ve entegrasyonun başarılı olmasını, Review sonucunun `PASS` ve QA sonucunun `PASS` olmasını gerektirir. “Ajan kodlamayı bitirdi”, Amiral'in tamamlanma tanımı değildir; süreç, gerçekten yürütülen kontrollerin ötesinde bir test garantisi vermez.
+
+### Kalıcı workflow'lar, açık sonuçlar ve otomasyona uygun CLI
+
+Workflow durumu ve geçmişi yerel JSON olarak kalıcılaştırılır. Devam ettirme, yeniden planlama yerine mevcut durumdan ilerler:
+
+```bash
+amiral status
+amiral workflow history <workflow-id>
+amiral run --workflow <workflow-id>
+```
+
+Task durumları `pending`, `in_progress`, `retry_wait`, `completed`, `failed`, `blocked`, `cancelled`; workflow durumları `planned`, `running`, `blocked`, `failed`, `completed`, `cancelled` değerleridir. Bu kalıcı durumlar, `run` durma nedenleri olan `completed`, `retry_scheduled`, `failed`, `blocked`, `needs_input`, `max_review_rounds`, `no_progress`, `interrupted` ile karıştırılmaz. Bu ayrım, başarısız veya duraklatılmış otomasyonun tamamlanmış gibi görünmesini önler.
+
+Global JSON çıktı, tanılar, retry/history kontrolleri ve kararlı çıkış kodu kategorileri; yerleşik CI orkestrasyonu iddiasında bulunmadan script'leri, CI ortamlarını ve gelecekteki kontrol düzlemlerini destekler.
+
+<a id="quick-start"></a>
+## Hızlı başlangıç
+
+```bash
+npm install --global amiral-ai
+cd my-project
+git init # only when needed
+amiral init
+amiral doctor
+amiral plan "Add authentication"
+amiral run --plan <generated-plan-id>
+```
+
+```bash
+amiral run "Add authentication"
+```
+
+`plan` = uygulamadan önce inceleme; `run` = çalıştırma.
+
+<a id="comparison"></a>
+## Karşılaştırma
+
+| Yetenek | Tek kodlama ajanı | Paralel ajan başlatıcı | Genel multi-agent framework | Amiral |
+| --- | --- | --- | --- | --- |
+| Uzman ajanlar | Sınırlı | Genellikle | Framework'e bağlı | Hazır roller |
+| Yalıtılmış Git worktree | Genellikle yok | Sıklıkla | Özel | Evet |
+| Kalıcı dependency graph ve zamanlama | Genellikle yok | Değişir | Kurulması/yapılandırılması gerekir | Evet |
+| Çalıştırılmadan kaydedilen plan | Değişir | Değişir | Kurulması gerekir | Evet |
+| Kontrollü entegrasyon workspace'i | Genellikle yok | Değişir | Özel | Evet |
+| Bağımsız Review → fix geçidi | Değişir | Değişir | Özel | Evet |
+| Bağımsız QA geçidi | Nadir | Değişir | Özel | Evet |
+| Kalıcı/kaldığı yerden devam ettirilebilir workflow | Değişir | Değişir | Özel | Evet |
+| Retry/history ve makinece okunabilir CLI | Sınırlı | Değişir | Framework'e bağlı | Evet |
+
+Paralel ajan başlatıcılar işin aynı anda nasıl çalıştırılacağını yanıtlar; Amiral ayrıca işin kime ait olduğunu, önce neyin tamamlanması gerektiğini, sonuçların nasıl entegre edileceğini, bunları kimin inceleyip test edeceğini ve hata ya da kesinti sonrasında ne olacağını yanıtlar.
+
+<a id="framework-positioning"></a>
+## Framework konumlandırması
+
+Genel multi-agent framework'ler keyfi ajan sistemleri kurmak için esnek primitive'ler sağlar. Amiral ise yazılım teslimatına özel, görüş sahibi bir süreç sunar:
+
+```text
+Requirement → Engineering Plan → Task Dependencies → Specialist Implementation
+→ Git Integration → Code Review → QA → Completed Change
+```
+
+<a id="philosophy"></a>
+## Felsefe
+
+Planlar incelenebilir olmalı; çalıştırılabilirliği dependency'ler belirlemeli; paralel ajanlar yalıtılmalı; entegrasyon kontrollü yapılmalı; kodu yazan ajan tek değerlendirici olmamalı; hatalar çözülene kadar hata olarak kalmalı ve kesilen workflow kaldığı yerden devam ettirilebilmelidir.
+
+> AI ajanları, birbirinden kopuk terminaller gibi değil bir mühendislik ekibi gibi çalışmalıdır.
+
+[↑ Başa dön](#top)
+
+<a id="installation"></a>
 
 ## En önemli ayrım: `plan` çalıştırma yapmaz
 
@@ -23,12 +197,12 @@ Amacınıza göre komutu seçin:
 | Şu anda seçili iş akışını sürdürmek | `amiral run` |
 
 ```bash
-# İki adımlı, çalıştırmadan önce incelemeli akış
+# Two-step, review-before-execution flow
 amiral plan "Add authentication" --type feature
-# Çıktı şunu içerir: Plan created: feature-ab12cd34
+# Output includes: Plan created: feature-ab12cd34
 amiral run --plan feature-ab12cd34
 
-# Tek adımlı akış: aynı istek planlanır ve ardından çalıştırılır
+# One-step flow: the same request is planned and then executed
 amiral run "Add authentication" --type feature
 ```
 
@@ -75,29 +249,30 @@ npx --yes amiral-ai init --minimal
 ### Paketi ve sürümü doğrulama
 
 ```bash
-amiral --version                         # etkin global/PATH ikili dosyası
-npx amiral --version                     # kurulu olduğunda yerel ikili dosya
-npm view amiral-ai version               # güncel registry sürümü
-npm list amiral-ai                       # yerel kurulu sürüm
-npm list --global amiral-ai              # global kurulu sürüm
+amiral --version                         # active global/PATH binary
+npx amiral --version                     # local binary, when installed
+npm view amiral-ai version               # current registry version
+npm list amiral-ai                       # local installed version
+npm list --global amiral-ai              # global installed version
 ```
 
-Paket sürümü, kurulu `package.json` dosyasından okunur; bu depo şu anda **0.1.2** sürümünü bildirir. Yükseltmeden sonra hâlâ eski bir sürüm gösteriliyorsa hangi çalıştırılabilir dosyanın çözümlendiğini belirleyin (Windows'ta `where amiral`, macOS/Linux'ta `which -a amiral`), çakışan global/yerel kurulumları kaldırın, yalnızca npm bozulma bildirdiyse npm'in normal önbelleğini temizleyin ve yeniden kurun. Eski bir global ikili dosyayı daha yeni bir yerel paketle düşünmeden birlikte kullanmaktan kaçının.
+Paket sürümü, kurulu `package.json` dosyasından okunur; bu depo şu anda **0.1.5** sürümünü bildirir. Yükseltmeden sonra hâlâ eski bir sürüm gösteriliyorsa hangi çalıştırılabilir dosyanın çözümlendiğini belirleyin (Windows'ta `where amiral`, macOS/Linux'ta `which -a amiral`), çakışan global/yerel kurulumları kaldırın, yalnızca npm bozulma bildirdiyse npm'in normal önbelleğini temizleyin ve yeniden kurun. Eski bir global ikili dosyayı daha yeni bir yerel paketle düşünmeden birlikte kullanmaktan kaçının.
 
 ```bash
-npm update --save-dev amiral-ai           # yerel bağımlılığı kendi sürüm aralığında güncelle
-npm install --global amiral-ai@latest     # global paketi değiştir
-npx --yes amiral-ai@latest --version      # registry'deki en son sürümü açıkça kullan
+npm update --save-dev amiral-ai           # update a local dependency within its range
+npm install --global amiral-ai@latest     # replace the global package
+npx --yes amiral-ai@latest --version      # explicitly use the latest registry release
 ```
 
 CLI'ı yeniden kurmak proje çalışma zamanı durumunu taşımaz veya silmez. Daha yeni bir CLI'ı mevcut `tasks/` verileriyle kullanmadan önce sürüm değişikliklerini inceleyin.
 
+<a id="initialization"></a>
 ## Bir projeyi başlatma
 
 Başlatmayı amaçlanan proje kökünde çalıştırın:
 
 ```bash
-git init                                  # yalnızca burası henüz bir Git deposu değilse
+git init                                  # only if this is not already a Git repository
 amiral init --minimal
 amiral doctor
 amiral config validate
@@ -112,6 +287,7 @@ amiral init [--minimal] [--force]
 
 Tam başlatma, `team.yaml` ve `.opencode/` içindeki izin listesindeki şablonları (ajanlar, iş akışları, sözleşmeler, orkestrasyon, politikalar, istemler, şemalar ve OpenCode yapılandırması) kurar; ardından paketteki `vendor/skills/**` ağacını hedefteki `vendor/skills/**` konumuna kopyalar. Başlatma ayrıca `.gitignore` dosyasına işaretçilerle sınırlanmış bir Amiral bloğu ekler; bloğu çoğaltmaz ve blok dışındaki içeriğin üzerine yazmaz. Güvenli olmayan sembolik bağlantı hedeflerini reddeder ve hiçbir zaman paket manifestlerini, bağımlılıkları veya çalışma zamanı durumunu kurmaz.
 
+<a id="configuration"></a>
 ## Proje kökünü bulma
 
 `init` dışında komutlar, boşluk içeren yollar da dahil olmak üzere proje kökünde veya herhangi bir alt dizinde çalıştırılabilir. Amiral yukarı doğru ilerler:
@@ -133,10 +309,10 @@ Kullanıcının eksiksiz özgün isteği, planlamanın esas girdisidir.
 - `--plan-file` bir planı içe aktarır; dolayısıyla iki metin argümanından birini gerektirmez.
 
 ```bash
-# İsteğin tamamı konumsal argümanda
+# Full request in the positional argument
 amiral plan "Add password reset with expiring one-use tokens and integration tests"
 
-# Kısa, gösterim düzeyinde fikir ve eksiksiz esas istek
+# Short display-level idea plus the complete authoritative request
 amiral run "Password reset" \
   --request "Add email-based password reset. Tokens expire after 15 minutes, are one-use, and must be covered by integration tests." \
   --type feature
@@ -147,21 +323,21 @@ Shell tırnaklaması önemlidir. Boşluk içeren istekleri tırnak içine alın;
 ## Çalışma modeli
 
 ```text
-Kullanıcı isteği
+User request
     ↓
-Lead / iş akışı seçimi
+Lead / workflow selection
     ↓
-Planner → doğrulanmış bağımlılık grafiği
+Planner → validated dependency graph
     ↓
-Yalıtılmış Git worktree'lerindeki uzmanlar
+Specialists in isolated Git worktrees
     ↓
-Entegrasyon worktree'si
+Integration worktree
     ↓
-Reviewer ── CHANGES_REQUESTED → düzeltme görevleri → yeniden inceleme
+Reviewer ── CHANGES_REQUESTED → fix tasks → review again
     ↓ PASS
-QA ──────── FAIL/BLOCKED → girdi için dur
+QA ──────── FAIL/BLOCKED → stop for input
     ↓ PASS
-Tamamlandı
+Complete
 ```
 
 Temel ilkeler:
@@ -194,7 +370,7 @@ Otomasyon için `--json` kullanın ve çıkış kodunu denetleyin:
 ```bash
 amiral --json status > status.json
 amiral doctor --json > doctor.json
-amiral config show --json > config.json       # gizli bilgi benzeri anahtarlar maskelenir
+amiral config show --json > config.json       # secret-like keys are redacted
 amiral workflow list --json
 ```
 
@@ -215,6 +391,7 @@ Normal JSON çıktısı stdout'a tek belge olarak gider. Hatalar stderr'e gider;
 | 6 | Doğrulama/şema başarısızlığı. |
 | 130 | Kesintiye uğradı. |
 
+<a id="commands"></a>
 ## Komut başvurusu
 
 ### `amiral plan`
@@ -264,7 +441,7 @@ amiral run "Add favorites" --type feature
 amiral run --plan feature-ab12cd34
 amiral run --plan ./plans/reviewed/task-graph.json --name favorites-approved
 amiral run --workflow feature-cd34ef56 --verbose
-amiral run                              # etkin iş akışı
+amiral run                              # active workflow
 ```
 
 `run`, çalışma zamanı kilidini tutar ve zamanlama, sağlayıcıya gönderme, entegrasyon, inceleme/düzeltme turları ve QA boyunca yinelenir. Tamamlandığında veya güvenli bir duraklama koşulunda döner; daemon değildir.
@@ -399,6 +576,7 @@ amiral config validate
 
 Maskeleme bir görüntüleme güvencesidir; gizli bilgileri `team.yaml` içinde saklama izni değildir.
 
+<a id="persistence"></a>
 ## Kalıcılık, durdurma ve sürdürme
 
 Planlar ve iş akışları farklı kalıcı nesnelerdir:
@@ -409,7 +587,7 @@ plans/<plan-id>/
 ├── task-graph.json
 ├── planner-result.raw.txt
 ├── planner-result.raw.json
-└── planner-diagnostics.json          # çevrimiçi planlama; başarısız girişimler de kaydedilebilir
+└── planner-diagnostics.json          # online planning; failed attempts may also be saved
 
 tasks/
 ├── .active-workflow
@@ -417,14 +595,14 @@ tasks/
     ├── state.json
     ├── task-graph.json
     ├── history.json
-    ├── requests/                     # dizin adı yapılandırılabilir
+    ├── requests/                     # directory name is configurable
     └── results/
 
 .amiral/
 ├── amiral.lock
-├── amiral.lock.guard                 # geçici iç mutex; eski durum kurtarması bunu kaldırabilir
-├── worktrees/<workflow-id>/...       # görev worktree'leri
-└── integration/<workflow-id>/...     # entegre ağaç ve geçit çıktı dosyaları (artifact'ları)
+├── amiral.lock.guard                 # transient internal mutex; stale recovery may remove it
+├── worktrees/<workflow-id>/...       # task worktrees
+└── integration/<workflow-id>/...     # integrated tree and gate artifacts
 ```
 
 Bu yollar yerel çalışma zamanı çıktı dosyalarıdır (artifact'lardır) ve başlatıcı bunları `.gitignore` dosyasına ekler. Belgelenmiş bir SQLite durum deposu yoktur: JSON dosyaları esas kayıt kaynağı, yani tek doğruluk kaynağıdır. Bir komut `.amiral/amiral.lock` kilidini tutarken durumu elle düzenlemeyin.
@@ -452,6 +630,7 @@ amiral run --workflow feature-cd34ef56
 
 Paylaşılan çalışma zamanı durumunu değiştiren komutlar proje kilidi kullanır. Başka bir işlem kilide sahipse o işlemi bekleyin veya gerçekten eski kalmış sahibi teşhis edin; etkin kilidi düşünmeden silmeyin.
 
+<a id="troubleshooting"></a>
 ## Sorun giderme
 
 ### “No Amiral project found”
@@ -495,25 +674,26 @@ amiral run --workflow <id>
 
 Komuta `--json` ekleyin, yalnızca stdout'u ayrıştırın ve stderr'i ayrı tutun. JSON tüketirken akışları (`2>&1`) birleştirmeyin. Onay isteyen istemler CI'da `--force` gerektirir.
 
+<a id="architecture"></a>
 ## Mimari ve depo düzeni
 
 ```text
-AGENTS.md                     ekip genelindeki çalışma kuralları
-team.yaml                     ajanlar, sağlayıcılar, kapasiteler, iş akışları
+AGENTS.md                     team-wide operating rules
+team.yaml                     agents, providers, capacities, workflows
 .opencode/
-├── agents/                   rol talimatları
-├── workflows/                feature, bugfix, refactor süreçleri
-├── orchestration/            çalıştırma/bağımlılık/hata protokolleri
-├── contracts/                görev, ajan sonucu, inceleme sözleşmeleri
-├── policies/                 mimari, Git, inceleme, test kuralları
-├── prompts/ and schemas/     makine istemleri ve doğrulama sözleşmeleri
-└── opencode.json             OpenCode yapılandırması
-src/cli/                      ürün CLI tanımları
-scripts/lib/                  orkestrasyon çalışma zamanı
-templates/init/               `amiral init` tarafından kurulan dosyalar
-vendor/skills/                normal `amiral init` tarafından kurulan paketlenmiş beceriler
-tests/                        Node test paketi
-memory/                       mimari, kurallar, kararlar, dersler
+├── agents/                   role instructions
+├── workflows/                feature, bugfix, refactor processes
+├── orchestration/            execution/dependency/error protocols
+├── contracts/                task, agent-result, review contracts
+├── policies/                 architecture, Git, review, testing rules
+├── prompts/ and schemas/     machine prompts and validation contracts
+└── opencode.json             OpenCode configuration
+src/cli/                      product CLI definitions
+scripts/lib/                  orchestration runtime
+templates/init/               files installed by `amiral init`
+vendor/skills/                bundled skills installed by normal `amiral init`
+tests/                        Node test suite
+memory/                       architecture, conventions, decisions, lessons
 ```
 
 Etkin paketlenmiş iş akışları `feature`, `bugfix` ve `refactor`dır. Ajanlar Lead, Planner, Frontend, Backend, Database, DevOps, Reviewer ve QA'i içerir. Ajan tanımları sorumluluğu; iş akışları süreci açıklar; politikalar çapraz kesen kuralları uygular; sözleşmeler makinece okunabilir devirleri tanımlar; beceriler yalnızca ilgili olduğunda uzmanlık bilgisi sağlar.
@@ -523,8 +703,8 @@ Etkin paketlenmiş iş akışları `feature`, `bugfix` ve `refactor`dır. Ajanla
 Bu depoyu klonlayın ve kilitlenmiş bağımlılıkları kurun:
 
 ```bash
-git clone https://github.com/atahandevelopment/opencode-ai-team.git
-cd opencode-ai-team
+git clone https://github.com/atahandevelopment/amiral-ai.git
+cd amiral-ai
 npm ci
 npm run typecheck
 npm test
