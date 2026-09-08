@@ -16,6 +16,7 @@ const SCHEMAS = {
     ROOT,
     ".opencode/schemas/planner-result.schema.json",
   ),
+  "design-spec": resolve(ROOT, ".opencode/schemas/design-spec.schema.json"),
 } as const;
 
 // Schemas that reference other schemas via $id must be compiled
@@ -25,6 +26,7 @@ const SCHEMA_DEPENDENCIES: Record<SchemaName, string[]> = {
   "execution-request": [],
   "quality-gate": [],
   "planner-result": [resolve(ROOT, ".opencode/schemas/task.schema.json")],
+  "design-spec": [],
 };
 
 type SchemaName = keyof typeof SCHEMAS;

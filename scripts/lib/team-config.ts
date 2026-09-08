@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import YAML from "yaml";
-import type { AgentName } from "./types.js";
+import { isAgentName, type AgentName } from "./types.js";
 
 export type TeamExecutionConfig = {
   max_parallel_agents: number;
@@ -77,6 +77,66 @@ export type QualityConfig = {
   max_review_rounds: number;
 };
 
+export type UiViewport = {
+  width: number;
+  height: number;
+};
+
+export type RawVisualQAConfig = {
+  enabled?: boolean;
+  provider?: string;
+  max_iterations?: number;
+  viewports?: UiViewport[];
+};
+
+export type RawProjectUiConfig = {
+  enabled?: boolean;
+  designer?: string;
+  skill?: string;
+  style_preset?: string;
+  animation?: Partial<UiAnimationConfig>;
+  allowed_hosts?: string[];
+  routes?: RawUiRoutePolicy;
+  server?: RawUiServerPolicy;
+  visual_qa?: RawVisualQAConfig;
+};
+
+export type AnimationIntensity = "none" | "subtle" | "moderate" | "expressive";
+export type UiAnimationConfig = { enabled: boolean; intensity: AnimationIntensity };
+export type RawUiRoutePolicy = { include?: string[]; exclude?: string[] };
+export type UiRoutePolicy = { include: string[]; exclude: string[] };
+export type RawUiServerPolicy = {
+  start_command?: string;
+  ready_url?: string;
+  startup_timeout_ms?: number;
+  shutdown_timeout_ms?: number;
+};
+export type UiServerPolicy = {
+  start_command?: string;
+  ready_url?: string;
+  startup_timeout_ms: number;
+  shutdown_timeout_ms: number;
+};
+
+export type VisualQAConfig = {
+  enabled: boolean;
+  provider?: string;
+  max_iterations: number;
+  viewports: UiViewport[];
+};
+
+export type ProjectUiConfig = {
+  enabled: boolean;
+  designer: AgentName;
+  skill?: string;
+  style_preset?: string;
+  animation: UiAnimationConfig;
+  allowed_hosts: string[];
+  routes: UiRoutePolicy;
+  server: UiServerPolicy;
+  visual_qa: VisualQAConfig;
+};
+
 export type TeamConfig = {
   team?: {
     name?: string;
@@ -88,7 +148,16 @@ export type TeamConfig = {
   opencode?: LegacyProviderSection;
   /** Phase 14 — optional quality-gate loop settings. */
   quality?: RawQualityConfig;
+  /** Optional UI workflow settings. Absence preserves legacy behavior. */
+  ui?: RawProjectUiConfig;
 };
+
+export const DEFAULT_UI_VIEWPORTS: readonly UiViewport[] = Object.freeze([
+  Object.freeze({ width: 1440, height: 900 }),
+  Object.freeze({ width: 1024, height: 768 }),
+  Object.freeze({ width: 768, height: 1024 }),
+  Object.freeze({ width: 390, height: 844 }),
+]);
 
 const DEFAULT_EXECUTION: TeamExecutionConfig = {
   max_parallel_agents: 3,
@@ -300,3 +369,111 @@ export function resolveQualityConfig(config: TeamConfig): QualityConfig {
 
   return { max_review_rounds: Number(value) };
 }
+
+/** Normalize and validate optional project UI settings. */
+export function resolveProjectUiConfig(config: TeamConfig): ProjectUiConfig {
+  const ui = config.ui;
+  const raw = ui?.visual_qa;
+  const boolean = (value: unknown, fallback: boolean, field: string): boolean => {
+    if (value === undefined) return fallback;
+    if (typeof value !== "boolean") {
+      throw new Error(`team.yaml: ui.${field} must be a boolean.`);
+    }
+    return value;
+  };
+  const maxIterations = raw?.max_iterations ?? 2;
+  if (!Number.isInteger(maxIterations) || maxIterations < 1) {
+    throw new Error("team.yaml: ui.visual_qa.max_iterations must be a positive integer.");
+  }
+
+  if (raw?.provider !== undefined &&
+      (typeof raw.provider !== "string" || !raw.provider.trim())) {
+    throw new Error("team.yaml: ui.visual_qa.provider must be a non-empty string.");
+  }
+
+  const configuredViewports = raw?.viewports;
+  if (configuredViewports !== undefined &&
+      (!Array.isArray(configuredViewports) || configuredViewports.length === 0)) {
+    throw new Error("team.yaml: ui.visual_qa.viewports must be a non-empty array.");
+  }
+
+  const viewports = (configuredViewports ?? DEFAULT_UI_VIEWPORTS).map((viewport, index) => {
+    if (!viewport || typeof viewport !== "object" ||
+        !Number.isInteger(viewport.width) || viewport.width < 1 ||
+        !Number.isInteger(viewport.height) || viewport.height < 1) {
+      throw new Error(`team.yaml: ui.visual_qa.viewports[${index}] must have positive integer width and height.`);
+    }
+    return { width: viewport.width, height: viewport.height };
+  });
+
+  const nonEmpty = (value: unknown, field: string): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(`team.yaml: ui.${field} must be a non-empty string.`);
+    }
+    return value.trim();
+  };
+  const stringList = (value: unknown, field: string): string[] => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some(item => typeof item !== "string" || !item.trim())) {
+      throw new Error(`team.yaml: ui.${field} must be an array of non-empty strings.`);
+    }
+    const normalized = value.map(item => item.trim());
+    if (new Set(normalized).size !== normalized.length) {
+      throw new Error(`team.yaml: ui.${field} must not contain duplicates.`);
+    }
+    return normalized;
+  };
+  const designerName = nonEmpty(ui?.designer, "designer") ?? "uiux-designer";
+  if (!isAgentName(designerName)) {
+    throw new Error(`team.yaml: ui.designer uses unknown agent "${designerName}".`);
+  }
+  const designer: AgentName = designerName;
+  if (designer === "reviewer" || designer === "qa" || designer === "planner") {
+    throw new Error("team.yaml: ui.designer cannot use a reserved quality-gate or planning agent.");
+  }
+  const intensity = ui?.animation?.intensity ?? "none";
+  if (!["none", "subtle", "moderate", "expressive"].includes(intensity)) {
+    throw new Error("team.yaml: ui.animation.intensity is invalid.");
+  }
+  const positiveMs = (value: unknown, fallback: number, field: string): number => {
+    if (value === undefined) return fallback;
+    if (!Number.isInteger(value) || Number(value) < 1) {
+      throw new Error(`team.yaml: ui.server.${field} must be a positive integer.`);
+    }
+    return Number(value);
+  };
+  const startCommand = nonEmpty(ui?.server?.start_command, "server.start_command");
+  const readyUrl = nonEmpty(ui?.server?.ready_url, "server.ready_url");
+
+  return {
+    enabled: boolean(ui?.enabled, false, "enabled"),
+    designer,
+    ...(nonEmpty(ui?.skill, "skill") ? { skill: nonEmpty(ui?.skill, "skill") } : {}),
+    ...(nonEmpty(ui?.style_preset, "style_preset") ? { style_preset: nonEmpty(ui?.style_preset, "style_preset") } : {}),
+    animation: {
+      enabled: boolean(ui?.animation?.enabled, false, "animation.enabled"),
+      intensity: intensity as AnimationIntensity,
+    },
+    allowed_hosts: stringList(ui?.allowed_hosts, "allowed_hosts"),
+    routes: {
+      include: stringList(ui?.routes?.include, "routes.include"),
+      exclude: stringList(ui?.routes?.exclude, "routes.exclude"),
+    },
+    server: {
+      ...(startCommand ? { start_command: startCommand } : {}),
+      ...(readyUrl ? { ready_url: readyUrl } : {}),
+      startup_timeout_ms: positiveMs(ui?.server?.startup_timeout_ms, 60_000, "startup_timeout_ms"),
+      shutdown_timeout_ms: positiveMs(ui?.server?.shutdown_timeout_ms, 10_000, "shutdown_timeout_ms"),
+    },
+    visual_qa: {
+      enabled: boolean(raw?.enabled, false, "visual_qa.enabled"),
+      ...(raw?.provider ? { provider: raw.provider.trim() } : {}),
+      max_iterations: maxIterations,
+      viewports,
+    },
+  };
+}
+
+/** Short alias for callers that already operate in a project context. */
+export const resolveUiConfig = resolveProjectUiConfig;

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/amiral/visual-qa-result.schema.json",
+  "title": "Amiral Visual QA Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "findings", "startup_gate", "residual_findings"],
+  "properties": {
+    "status": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED"] },
+    "outcome_code": { "type": "string", "enum": ["passed", "findings", "disabled", "provider_unavailable", "artifact_unavailable", "startup_failed", "provider_failed"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "startup_gate": { "type": "object", "additionalProperties": false, "required": ["status", "summary"], "properties": {
+      "status": { "type": "string", "enum": ["PASS", "FAIL", "BLOCKED"] }, "summary": { "type": "string", "minLength": 1 }
+    } },
+    "residual_findings": { "type": "integer", "minimum": 0 },
+    "findings": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["severity", "message"],
+      "properties": {
+        "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+        "message": { "type": "string", "minLength": 1 }, "route": { "type": "string", "minLength": 1 },
+        "viewport": { "type": "object", "additionalProperties": false, "required": ["width", "height"], "properties": {
+          "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 }
+        } }, "evidence": { "type": "string", "minLength": 1 }
+      }
+    } }
+  },
+  "allOf": [{ "if": { "properties": { "status": { "const": "PASS" } }, "required": ["status"] }, "then": { "properties": {
+    "startup_gate": { "type": "object", "properties": { "status": { "const": "PASS" } }, "required": ["status"] }, "residual_findings": { "const": 0 }
+  } } }]
+}

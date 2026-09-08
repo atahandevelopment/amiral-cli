@@ -92,6 +92,10 @@ for frontend implementation.
 
 Use:
 
+The orchestrator invokes `uiux-designer` before final graph planning only for materially changed user-facing layout, hierarchy, responsive behavior, interactions, motion, or accessibility. When an approved design artifact is supplied, reference it concisely from frontend tasks. Never create a designer execution task, and do not request design support for copy-only, visually immaterial, backend-only, or trivial work.
+
+Use:
+
 `backend`
 
 for backend implementation.

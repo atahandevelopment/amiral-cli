@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
+import { readdir } from "node:fs/promises";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { before, describe, it } from "node:test";
@@ -64,6 +65,17 @@ describe("schema backward compatibility", () => {
 
   it("task schema accepts tasks with planning metadata", () => {
     assert.equal(validateTask(plannedTask), true, JSON.stringify(validateTask.errors));
+  });
+
+  it("canonical and init template schemas remain byte-identical", async () => {
+    const files = (await readdir(resolve(ROOT, ".opencode/schemas"))).filter(file => file.endsWith(".json"));
+    for (const file of files) {
+      assert.equal(
+        await readFile(resolve(ROOT, "templates/init/.opencode/schemas", basename(file)), "utf8"),
+        await readFile(resolve(ROOT, ".opencode/schemas", file), "utf8"),
+        file,
+      );
+    }
   });
 
   it("task schema rejects invalid planning enum values", () => {

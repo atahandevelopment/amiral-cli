@@ -25,10 +25,10 @@
  * never exits the process; progress lines flow through `onEvent`.
  */
 
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
-import type { WorkflowState } from "./types.js";
+import type { RuntimeTask, WorkflowState } from "./types.js";
 import type { RetryWaitingInfo } from "./scheduling-service.js";
 
 import {
@@ -57,7 +57,16 @@ import { applyReviewFixRound } from "./review-fix-service.js";
 import {
   loadTeamConfig,
   resolveQualityConfig,
+  resolveProjectUiConfig,
 } from "./team-config.js";
+import {
+  VisualQAService,
+  visualQAProviders,
+  type DesignSpec,
+  type VisualQAResult,
+} from "./visual-qa.js";
+import { writeJson } from "./workflow-store.js";
+import { validateContract } from "./contract-validator.js";
 
 export type RunStopReason =
   | "completed"
@@ -90,6 +99,8 @@ export type RunWorkflowOptions = {
   maxIterations?: number;
   signal?: { aborted: boolean };
   onEvent?: (line: string) => void;
+  /** Test/adapter seam; normal runs use the process-wide provider registry. */
+  visualQAService?: Pick<VisualQAService, "evaluate">;
 };
 
 const DEFAULT_MAX_ITERATIONS = 25;
@@ -167,7 +178,7 @@ export function computeNextRetryAt(
 async function runIntegrationPhase(
   state: WorkflowState,
   onEvent: (line: string) => void,
-): Promise<void> {
+): Promise<Awaited<ReturnType<typeof createIntegrationWorkspace>>> {
   await assertCleanWorkingTree();
 
   const workspace = await createIntegrationWorkspace(state.workflow_id);
@@ -202,6 +213,126 @@ async function runIntegrationPhase(
 
     onEvent(`[integration] merged ${branch}`);
   }
+  return workspace;
+}
+
+type VisualQAPhase = { fixesCreated: boolean; blocking?: boolean; result?: VisualQAResult; iteration?: number };
+
+async function findDesignSpec(state: WorkflowState): Promise<{ spec: DesignSpec; ref: string } | undefined> {
+  const refs = state.tasks.flatMap(task => task.artifact_refs ?? []).filter(ref => ref.endsWith("uiux-design-spec.json"));
+  const sourceCandidate = resolve(dirname(state.source_graph), "uiux-design-spec.json");
+  const candidates = [...new Set([...refs.map(ref => resolveApprovedDesignArtifact(ref, state)), sourceCandidate])];
+  for (const file of candidates) {
+    try {
+      const spec = JSON.parse(await readFile(file, "utf8")) as DesignSpec;
+      await validateContract("design-spec", spec);
+      return { spec, ref: file };
+    } catch { /* unavailable or invalid candidates are never consumed */ }
+  }
+  return undefined;
+}
+
+function resolveApprovedDesignArtifact(ref: string, state: WorkflowState): string {
+  if (ref.includes("\0")) throw new Error("Design artifact reference contains invalid characters.");
+  const root = resolve(process.cwd());
+  const candidate = resolve(root, ref);
+  const planRoot = resolve(root, "plans");
+  const graphRoot = resolve(dirname(state.source_graph));
+  const inside = (base: string): boolean => candidate === base || candidate.startsWith(`${base}\\`) || candidate.startsWith(`${base}/`);
+  const legacy = candidate === resolve(root, "uiux-design-spec.json");
+  if (!legacy && !inside(planRoot) && !inside(graphRoot)) throw new Error(`Design artifact reference is outside approved roots: ${ref}`);
+  return candidate;
+}
+
+async function visualIteration(gatesDir: string): Promise<number> {
+  try {
+    const files = await readdir(gatesDir);
+    return files.filter(name => /^visual-qa-iteration-\d+\.json$/.test(name)).length + 1;
+  } catch { return 1; }
+}
+
+async function runVisualQAPhase(
+  state: WorkflowState,
+  workspace: Awaited<ReturnType<typeof createIntegrationWorkspace>>,
+  teamConfig: Awaited<ReturnType<typeof loadTeamConfig>>,
+  service: Pick<VisualQAService, "evaluate">,
+  onEvent: (line: string) => void,
+): Promise<VisualQAPhase> {
+  const ui = resolveProjectUiConfig(teamConfig);
+  if (!ui.enabled) return { fixesCreated: false }; // Preserve non-UI behavior completely.
+  const gatesDir = resolve(workspace.worktreePath, ".amiral", "gates");
+  const iteration = await visualIteration(gatesDir);
+  if (iteration > ui.visual_qa.max_iterations) {
+    try {
+      const prior = JSON.parse(await readFile(resolve(gatesDir, "visual-qa-result.json"), "utf8")) as VisualQAResult;
+      onEvent(`[visual-qa] iteration budget exhausted; ${prior.residual_findings} finding(s) remain in .amiral/gates/visual-qa-result.json`);
+      return { fixesCreated: false, blocking: isBlockingVisualResult(prior), result: prior, iteration: iteration - 1 };
+    } catch { /* recover by producing a fresh diagnostic */ }
+  }
+  const design = await findDesignSpec(state);
+  let result: VisualQAResult;
+  if (!ui.visual_qa.enabled) {
+    result = { status: "BLOCKED", outcome_code: "disabled", summary: "Visual QA skipped: disabled by normalized configuration.", findings: [], startup_gate: { status: "BLOCKED", summary: "Visual QA is disabled." }, residual_findings: 0 };
+  } else if (!design) {
+    result = { status: "BLOCKED", outcome_code: "artifact_unavailable", summary: "Visual QA skipped: design specification artifact is unavailable.", findings: [], startup_gate: { status: "BLOCKED", summary: "Design artifact unavailable." }, residual_findings: 0 };
+  } else if (!ui.server.ready_url) {
+    result = { status: "BLOCKED", outcome_code: "startup_failed", summary: "Visual QA cannot start: ui.server.ready_url is not configured.", findings: [], startup_gate: { status: "FAIL", summary: "Ready URL is not configured." }, residual_findings: 0 };
+  } else {
+    result = await service.evaluate({ enabled: true, provider: ui.visual_qa.provider, allowedHosts: ui.allowed_hosts, routes: ui.routes, server: { cwd: workspace.worktreePath, readyUrl: ui.server.ready_url, startCommand: ui.server.start_command, startupTimeoutMs: ui.server.startup_timeout_ms, shutdownTimeoutMs: ui.server.shutdown_timeout_ms }, designSpec: design.spec, viewports: ui.visual_qa.viewports });
+  }
+  await writeJson(resolve(gatesDir, `visual-qa-iteration-${iteration}.json`), result);
+  await writeJson(resolve(gatesDir, "visual-qa-result.json"), result);
+  const outcomeCode = result.outcome_code ?? legacyOutcomeCode(result);
+  result = { ...result, outcome_code: outcomeCode };
+  const skipped = outcomeCode === "disabled" || outcomeCode === "provider_unavailable" || outcomeCode === "artifact_unavailable";
+  await appendHistory({ timestamp: new Date().toISOString(), workflow_id: state.workflow_id, event: skipped ? "visual_qa_skipped" : "visual_qa_completed", message: `Visual QA iteration ${iteration}: ${result.status} — ${result.summary}`, details: { iteration, residual_findings: result.residual_findings, artifact: `.amiral/gates/visual-qa-result.json` } });
+  onEvent(`[visual-qa] iteration ${iteration}: ${result.status} — ${result.summary} (residual=${result.residual_findings})`);
+
+  const actionable = result.findings.filter(finding => finding.severity === "critical" || finding.severity === "high");
+  if (skipped || actionable.length === 0 || iteration >= ui.visual_qa.max_iterations || result.status === "BLOCKED") {
+    if (actionable.length && iteration >= ui.visual_qa.max_iterations) onEvent(`[visual-qa] maximum iterations reached; ${result.residual_findings} finding(s) remain in .amiral/gates/visual-qa-result.json`);
+    return { fixesCreated: false, blocking: !skipped && (result.status === "BLOCKED" || (iteration >= ui.visual_qa.max_iterations && actionable.length > 0)), result, iteration };
+  }
+  const persisted = await loadState(state.workflow_id);
+  const completedDependencies = persisted.tasks.filter(task => task.agent === "frontend" && task.status === "completed").map(task => task.id);
+  const designRef = design?.ref ?? "uiux-design-spec.json";
+  const findingsRef = `.amiral/gates/visual-qa-iteration-${iteration}.json`;
+  const created: RuntimeTask[] = actionable.map((finding, index) => ({
+    id: `FIX-VQA-R${iteration}-${String(index + 1).padStart(3, "0")}`,
+    title: `Fix Visual QA ${finding.severity} finding`, agent: "frontend",
+    description: `Resolve the targeted Visual QA finding: ${finding.message}${finding.route ? ` Route: ${finding.route}.` : ""}`,
+    dependencies: completedDependencies, acceptance_criteria: [`The referenced ${finding.severity} finding is resolved without UI regressions.`],
+    artifact_refs: [designRef, findingsRef], status: "pending", attempts: 0, started_at: null, completed_at: null, last_error: null, result_file: null,
+  }));
+  persisted.tasks.push(...created);
+  persisted.status = "running";
+  await saveState(persisted);
+  await appendHistory({ timestamp: new Date().toISOString(), workflow_id: state.workflow_id, event: "visual_qa_fixes_created", message: `Visual QA iteration ${iteration} created ${created.map(task => task.id).join(", ")}.`, details: { iteration, task_ids: created.map(task => task.id), findings_artifact: findingsRef, design_artifact: designRef } });
+  onEvent(`[visual-qa] created targeted frontend fixes: ${created.map(task => task.id).join(", ")}`);
+  return { fixesCreated: true, result, iteration };
+}
+
+function hasSevereVisualFindings(result: VisualQAResult): boolean {
+  return result.findings.some(finding => finding.severity === "critical" || finding.severity === "high");
+}
+
+function legacyOutcomeCode(result: VisualQAResult): NonNullable<VisualQAResult["outcome_code"]> {
+  if (result.status === "PASS") return "passed";
+  if (result.status === "FAIL") return "findings";
+  // Legacy BLOCKED artifacts had no structured reason. Fail closed on resume.
+  return "provider_failed";
+}
+
+function isBlockingVisualResult(result: VisualQAResult): boolean {
+  const code = result.outcome_code ?? legacyOutcomeCode(result);
+  if (code === "disabled" || code === "provider_unavailable" || code === "artifact_unavailable") return false;
+  return result.status === "BLOCKED" || hasSevereVisualFindings(result);
+}
+
+async function visualBlockedOutcome(state: WorkflowState, visual: VisualQAPhase): Promise<RunOutcome> {
+  const message = `Visual QA blocked the workflow: ${visual.result?.summary ?? "configured gate did not pass"}`;
+  await blockWorkflow(state.workflow_id, message);
+  return { reason: "blocked", workflowId: state.workflow_id, status: "blocked", message };
 }
 
 /**
@@ -405,7 +536,14 @@ export async function runWorkflowUntilPause(
     // scheduling rejects completed workflows, so run the gates before asking
     // the scheduler for another claim.
     if (state.status === "completed") {
-      await runIntegrationPhase(state, onEvent);
+      const workspace = await runIntegrationPhase(state, onEvent);
+      const teamConfig = await loadTeamConfig();
+      const visual = await runVisualQAPhase(state, workspace, teamConfig, options.visualQAService ?? new VisualQAService(visualQAProviders), onEvent);
+      if (visual.fixesCreated) {
+        detail.push({ iteration, summary: `visual QA iteration ${visual.iteration} requested frontend fixes` });
+        continue;
+      }
+      if (visual.blocking) return { ...(await visualBlockedOutcome(state, visual)), ...(detail.length ? { detail } : {}) };
       const outcome = await runQualityGates(state.workflow_id, onEvent);
       if (outcome) return { ...outcome, ...(detail.length ? { detail } : {}) };
       detail.push({ iteration, summary: "quality gates requested changes; fix tasks scheduled" });
@@ -515,7 +653,14 @@ export async function runWorkflowUntilPause(
       nonGate.length > 0 &&
       nonGate.every((task) => task.status === "completed")
     ) {
-      await runIntegrationPhase(fresh, onEvent);
+      const workspace = await runIntegrationPhase(fresh, onEvent);
+      const teamConfig = await loadTeamConfig();
+      const visual = await runVisualQAPhase(fresh, workspace, teamConfig, options.visualQAService ?? new VisualQAService(visualQAProviders), onEvent);
+      if (visual.fixesCreated) {
+        detail.push({ iteration, summary: `visual QA iteration ${visual.iteration} requested frontend fixes` });
+        continue;
+      }
+      if (visual.blocking) return { ...(await visualBlockedOutcome(fresh, visual)), ...(detail.length ? { detail } : {}) };
 
       const outcome = await runQualityGates(fresh.workflow_id, onEvent);
 

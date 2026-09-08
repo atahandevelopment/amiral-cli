@@ -1,5 +1,7 @@
 {
+  "workflow_id": "workflow-example",
   "task_id": "API-001",
+  "lease_id": "lease-example",
   "agent": "backend",
   "status": "completed",
   "summary": "Implemented authentication endpoints and validation.",

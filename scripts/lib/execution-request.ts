@@ -24,6 +24,7 @@ export type ExecutionRequest = {
     workflow_type: WorkflowState["workflow_type"];
     dependencies: string[];
     skills: string[];
+    artifact_refs?: string[];
     result_path: string;
   };
 };
@@ -65,6 +66,7 @@ export function createExecutionRequest(
       workflow_type: state.workflow_type,
       dependencies: task.dependencies,
       skills: getAgentSkills(teamConfig, task.agent),
+      ...(task.artifact_refs?.length ? { artifact_refs: task.artifact_refs } : {}),
       result_path: resultPath,
     },
   };

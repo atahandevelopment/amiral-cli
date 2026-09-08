@@ -28,6 +28,7 @@ Plan → Decompose → Schedule → Execute → Integrate → Review → Fix →
 - [Prérequis et installation](#installation)
 - [Initialisation](#initialization)
 - [Configuration et détection du projet](#configuration)
+- [Conception UI/UX et Browser Visual QA facultatives](#ui-workflow)
 - [Référence des commandes](#commands)
 - [Persistance, arrêt et reprise](#persistence)
 - [Dépannage](#troubleshooting)
@@ -352,6 +353,56 @@ Principes fondamentaux :
 - Préservez les modifications sans rapport, évitez les opérations Git destructrices et n’exposez jamais d’identifiants.
 
 Le fichier `team.yaml` fourni définit les agents, les capacités, le routage et la capacité des providers, les baux, les nouvelles tentatives, la conservation Git ainsi que les workflows `feature`, `bugfix` et `refactor`. L’ordonnanceur utilise les dépendances des tâches et les capacités requises ; le parallélisme effectif est limité par `execution.max_parallel_agents` et par la concurrence du provider (ces deux valeurs sont fixées à 1 par défaut dans la configuration fournie).
+
+<a id="ui-workflow"></a>
+## Conception UI/UX et Browser Visual QA facultatives
+
+La prise en charge de l’UI est facultative et préserve le workflow normal lorsqu’elle est absente ou désactivée. Le fichier `team.yaml` fourni contient une section `ui` désactivée avec `ui.enabled: false`. Lors d’une planification en ligne, Amiral invoque l’agent en lecture seule `uiux-designer` avant le Planner uniquement si `ui.enabled` vaut true et si la demande est prudemment classée comme une modification significative de l’interface, par exemple de la mise en page, du comportement responsive, des interactions, du mouvement ou de l’accessibilité. Les demandes limitées au texte, sans incidence visuelle ou propres au backend ne l’activent pas. Les plans importés (`--plan-file`) n’exécutent pas cette étape de conception.
+
+`uiux-designer` peut charger sélectivement le skill fourni `ui-ux-pro` lorsqu’une direction détaillée est nécessaire ; il ne le charge pas pour le backend, une modification limitée au texte ou lorsqu’une spécification approuvée détermine déjà l’UI. Le skill ne lit que les références pertinentes, privilégie les composants et tokens du dépôt et fournit un raisonnement plutôt qu’une implémentation. Le Designer n’écrit lui-même aucun fichier : l’orchestration valide son JSON et conserve `plans/<plan-id>/uiux-design-spec.json` ainsi que `uiux-design-diagnostics.json`. La spécification comprend `version`, `name`, `summary` et au moins une route avec `path`, `description` et des `acceptance_criteria` observables ; les tâches frontend la reçoivent comme référence d’artefact. La validation de la sortie du Designer est limitée à trois tentatives.
+
+Après l’intégration, Browser Visual QA s’exécute **avant** Review et QA. Les résultats contiennent un `outcome_code` structuré. Les constats `critical`/`high` créent des corrections ; s’ils persistent après le budget d’itérations, le workflow est bloqué et Review/QA ne continuent pas silencieusement.
+
+```yaml
+ui:
+  enabled: true
+  designer: uiux-designer
+  skill: ui-ux-pro
+  # style_preset: product-archetype-name
+  animation:
+    enabled: false
+    intensity: none
+  allowed_hosts: []
+  routes:
+    include: []
+    exclude: []
+  server:
+    # start_command: npm run dev
+    # ready_url: http://localhost:3000
+    startup_timeout_ms: 60000
+    shutdown_timeout_ms: 10000
+  visual_qa:
+    enabled: false
+    # provider: registered-browser-adapter
+    max_iterations: 2
+    viewports:
+      - { width: 1440, height: 900 }
+      - { width: 1024, height: 768 }
+      - { width: 768, height: 1024 }
+      - { width: 390, height: 844 }
+```
+
+Tous les champs ci-dessus sont facultatifs. Les valeurs normalisées exactes par défaut sont : `enabled: false`, `designer: uiux-designer`, aucun `skill` ni `style_preset`, `animation.enabled: false`, `animation.intensity: none`, des listes vides pour `allowed_hosts`, `routes.include` et `routes.exclude`, aucune commande ni URL de disponibilité du serveur, des délais serveur de 60 000/10 000 ms, et Visual QA désactivée sans provider, avec deux itérations et les quatre viewports affichés. Les booléens doivent être des booléens ; les délais, dimensions et `max_iterations` doivent être des entiers positifs ; les chaînes ne doivent pas être vides. Les listes de chaînes doivent contenir des valeurs uniques non vides. `animation.intensity` accepte `none`, `subtle`, `moderate` ou `expressive`. Le Designer ne peut pas être `planner`, `reviewer` ou `qa`.
+
+`style_preset` est une indication facultative pour le prompt, et non un installateur de thème. Cette version ne fournit aucun preset, n’en sélectionne jamais implicitement et n’imite aucune entreprise nommée ; le design system existant et les exigences explicites sont prioritaires. De même, les paramètres d’animation communiquent un budget de mouvement à l’étape de conception au lieu d’injecter des animations à l’exécution. Les recommandations fournies privilégient un feedback utile (environ 100–150 ms), les transitions standard (150–250 ms) et les transitions spatiales importantes (250–400 ms), évitent les mouvements de plus de 500 ms, ne retardent jamais l’achèvement d’une tâche et respectent les préférences de réduction des animations.
+
+Visual QA désactivée, un provider non configuré/installé ou un artefact de conception indisponible est enregistré puis ignoré. Un échec de démarrage configuré, une `ready_url` absente, une erreur d’exécution du provider ou des constats critiques/élevés épuisés bloque le workflow.
+
+Les contrôles du navigateur et du serveur sont volontairement stricts : la disponibilité et la navigation n’autorisent que des URL HTTP(S) sans identifiants ; les hôtes loopback sont autorisés par défaut et tout nom d’hôte exact supplémentaire doit figurer dans `allowed_hosts`. `start_command` est analysé en arguments sans shell et rejette les opérateurs de shell. Amiral sonde un serveur déjà actif sans en prendre possession ; il n’arrête que le processus qu’il a lancé, en appliquant le délai d’arrêt avant de le forcer. Les identifiants courants sont masqués dans des diagnostics de longueur limitée. Ne placez aucun secret dans les URL, commandes, artefacts ou configurations suivies.
+
+Le Designer et Visual QA consomment du contexte et du temps supplémentaires. Le core applique la politique d’inclusion/exclusion des routes avant d’appeler le provider.
+
+Le package npm comprend `templates/` et `vendor/skills`. Un `amiral init` normal installe l’agent `uiux-designer` et les schémas de conception/Visual QA avec les autres modèles, puis copie `vendor/skills/ui-ux-pro` ; les fichiers existants sont conservés sauf avec `--force`. `amiral init --minimal` ne lit ni n’installe volontairement les skills fournis et exclut l’agent Designer facultatif, tout en installant son ensemble minimal de schémas. L’initialisation n’active pas le traitement UI et n’ajoute pas automatiquement de section `ui`.
 
 ## Options globales et sortie
 

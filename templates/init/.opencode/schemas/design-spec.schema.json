@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/amiral/design-spec.schema.json",
+  "title": "Amiral UI Design Specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "name", "summary", "routes"],
+  "properties": {
+    "version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "routes": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "description", "acceptance_criteria"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "acceptance_criteria": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    }
+  }
+}

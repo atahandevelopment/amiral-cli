@@ -10,10 +10,7 @@
     "status",
     "created_at",
     "updated_at",
-    "tasks",
-    "max_attempts",
-    "lease_id",
-    "lease_expires_at"
+    "tasks"
   ],
   "properties": {
     "workflow_id": {

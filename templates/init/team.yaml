@@ -49,6 +49,15 @@ agents:
       - general/architecture
     routing_priority: 5
 
+  uiux-designer:
+    role: designer
+    capabilities:
+      - frontend/ui-design
+      - frontend/accessibility
+    skills:
+      - ui-ux-pro
+    routing_priority: 5
+
   frontend:
     role: developer
     capabilities:
@@ -168,3 +177,30 @@ workflows:
 
   refactor:
     file: .opencode/workflows/refactor.md
+
+ui:
+  enabled: false
+  designer: uiux-designer
+  skill: ui-ux-pro
+  animation:
+    enabled: false
+    intensity: none
+  allowed_hosts: []
+  routes:
+    include: []
+    exclude: []
+  server:
+    startup_timeout_ms: 60000
+    shutdown_timeout_ms: 10000
+  visual_qa:
+    enabled: false
+    max_iterations: 2
+    viewports:
+      - width: 1440
+        height: 900
+      - width: 1024
+        height: 768
+      - width: 768
+        height: 1024
+      - width: 390
+        height: 844

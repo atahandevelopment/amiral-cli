@@ -30,6 +30,7 @@
       "type": "string",
       "enum": [
         "planner",
+        "uiux-designer",
         "frontend",
         "backend",
         "database",
@@ -106,6 +107,11 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "artifact_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
         },
         "result_path": {
           "type": "string",

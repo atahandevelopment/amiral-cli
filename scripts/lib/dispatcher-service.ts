@@ -14,8 +14,10 @@
  * instead of the console. This module never exits the process.
  */
 
-import { readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { constants as fsConstants } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFile, lstat, mkdir, readdir, realpath, rm } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 import type { AgentResult } from "./agent-result.js";
 import type { ExecutionRequest } from "./execution-request.js";
@@ -299,6 +301,7 @@ async function executeRequest(
 
   let worktreePath: string | undefined;
   let branchName: string | undefined;
+  let materializedArtifacts: string[] = [];
 
   try {
     const worktree = await createTaskWorktree(
@@ -310,6 +313,8 @@ async function executeRequest(
     worktreePath = worktree.worktreePath;
     branchName = worktree.branchName;
 
+    materializedArtifacts = await materializeTaskArtifacts(request, worktree.worktreePath);
+
     onEvent(`[${request.task_id}] worktree: ${worktree.worktreePath}`);
 
     const output = await provider.execute({
@@ -319,6 +324,10 @@ async function executeRequest(
     });
 
     const result = output.result!;
+
+    // Do not include orchestration-owned copies in a successful task commit.
+    await Promise.all(materializedArtifacts.map(file => rm(file, { force: true })));
+    materializedArtifacts = [];
 
     let commit: string | undefined;
 
@@ -368,7 +377,75 @@ async function executeRequest(
       throw new Error(`Orchestration failed for ${request.task_id}: ${detail}; failed to persist recoverable state: ${persistenceError instanceof Error ? persistenceError.message : String(persistenceError)}`, { cause: error });
     }
     return { taskId: request.task_id, agent: request.agent, status: "error", summary: detail, branch: branchName, worktree: worktreePath };
+  } finally {
+    // Cleanup runs for success and every provider failure path. It must never
+    // replace the original provider error or alter its retry classification.
+    await Promise.all(materializedArtifacts.map(file => rm(file, { force: true }).catch(() => undefined)));
   }
+}
+
+/** Copies orchestration artifacts into the isolated task cwd and rewrites refs to local paths. */
+export async function materializeTaskArtifacts(request: ExecutionRequest, worktreePath: string): Promise<string[]> {
+  const refs = request.context.artifact_refs;
+  if (!refs?.length) return [];
+  const root = resolve(process.cwd());
+  const integrationGates = resolve(root, ".amiral", "integration", request.workflow_id.toLowerCase(), ".amiral", "gates");
+  const artifactDir = resolve(worktreePath, ".amiral", "artifacts");
+  const local: string[] = [];
+  const copied: string[] = [];
+  try {
+    for (const ref of refs) {
+      if (ref.includes("\0")) throw new Error("Artifact reference contains invalid characters.");
+      let source: string;
+      let sourceIdentity: string;
+      let approvedRoot: string;
+      if (ref.startsWith(".amiral/gates/")) {
+        const file = basename(ref);
+        if (!/^visual-qa-iteration-\d+\.json$/.test(file) || ref !== `.amiral/gates/${file}`) {
+          throw new Error(`Artifact reference is not an approved gate artifact: ${ref}`);
+        }
+        source = resolve(integrationGates, file);
+        approvedRoot = resolve(root, ".amiral", "integration");
+        sourceIdentity = `gate:${request.workflow_id.toLowerCase()}/${file}`;
+      } else {
+        source = resolve(root, ref);
+        const rel = relative(root, source).replace(/\\/g, "/");
+        const approvedDesignSource = basename(source) === "uiux-design-spec.json"
+          && (rel === "uiux-design-spec.json" || /^(plans|tasks)\/[^/]+\/uiux-design-spec\.json$/.test(rel));
+        if (isAbsolute(rel) || rel.startsWith("../") || !approvedDesignSource) {
+          throw new Error(`Artifact reference is outside approved artifact roots or has an unsupported type: ${ref}`);
+        }
+        approvedRoot = rel === "uiux-design-spec.json" ? root : resolve(root, rel.split("/")[0]);
+        sourceIdentity = `design:${rel}`;
+      }
+      const sourceStat = await lstat(source);
+      if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) throw new Error(`Artifact source must be a regular non-symlink file: ${ref}`);
+      const [physicalSource, physicalApprovedRoot] = await Promise.all([realpath(source), realpath(approvedRoot)]);
+      const physicalRelative = relative(physicalApprovedRoot, physicalSource);
+      if (physicalRelative.startsWith("..") || isAbsolute(physicalRelative)) {
+        throw new Error(`Artifact source resolves outside its approved root: ${ref}`);
+      }
+      const suffix = createHash("sha256").update(sourceIdentity).digest("hex").slice(0, 16);
+      const destinationRef = `.amiral/artifacts/${suffix}-${basename(source)}`;
+      const destination = resolve(worktreePath, destinationRef);
+      const relDestination = relative(resolve(worktreePath), destination);
+      if (relDestination.startsWith("..") || isAbsolute(relDestination) || dirname(destination) !== artifactDir) throw new Error(`Artifact destination escapes task artifact namespace: ${ref}`);
+      await mkdir(artifactDir, { recursive: true });
+      const namespaceParts = [resolve(worktreePath, ".amiral"), artifactDir];
+      if ((await Promise.all(namespaceParts.map(part => lstat(part)))).some(stat => stat.isSymbolicLink())) {
+        throw new Error("Task artifact namespace must not contain symbolic links.");
+      }
+      // Never overwrite a tracked (or otherwise pre-existing) worktree path.
+      await copyFile(source, destination, fsConstants.COPYFILE_EXCL);
+      copied.push(destination);
+      local.push(destinationRef);
+    }
+  } catch (error) {
+    await Promise.all(copied.map(file => rm(file, { force: true }).catch(() => undefined)));
+    throw error;
+  }
+  request.context.artifact_refs = local;
+  return copied;
 }
 
 async function failLeasedTask(request: ExecutionRequest, detail: string): Promise<void> {

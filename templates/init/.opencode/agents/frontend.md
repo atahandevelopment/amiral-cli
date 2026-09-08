@@ -26,6 +26,7 @@ Before implementing:
 2. Inspect related components.
 3. Inspect existing patterns.
 4. Reuse existing abstractions where appropriate.
+5. If the task depends on a design specification, treat it as the UI acceptance contract and flag contradictions with repository constraints instead of silently redesigning it.
 
 Rules:
 
@@ -37,6 +38,8 @@ Rules:
 - Do not introduce dependencies without justification.
 - Write maintainable code.
 - Handle loading, error and empty states.
+- Implement specified responsive, interaction, motion, and accessibility behavior; do not substitute a generic visual preset.
+- Load `ui-ux-pro` only when design details are missing or need interpretation. Do not use it to override an approved design specification or established design system.
 
 After implementation:
 

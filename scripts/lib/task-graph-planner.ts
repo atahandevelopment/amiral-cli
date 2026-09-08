@@ -8,6 +8,7 @@ import type {
   TaskPlanningMetadata,
   WorkflowType,
 } from "./types.js";
+import { isAgentName } from "./types.js";
 import { validateTaskGraphSemantics } from "./task-graph.js";
 import type { TeamConfig } from "./team-config.js";
 import { getKnownCapabilities } from "./capability-scheduler.js";
@@ -40,7 +41,7 @@ export type PlanValidationOptions = {
  * Reviewer and QA are quality gates handled by the existing Phase 10 system.
  * They must never be planned as normal implementation tasks.
  */
-const GATE_AGENTS: readonly AgentName[] = ["reviewer", "qa"];
+const NON_IMPLEMENTATION_AGENTS: readonly AgentName[] = ["uiux-designer", "reviewer", "qa"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -134,6 +135,10 @@ function normalizeRouting(value: unknown): SourceTask["routing"] | undefined {
     value.required_capabilities,
   );
   const preferredAgents = normalizeStringList(value.preferred_agents);
+  const unknownPreferredAgent = preferredAgents.find(agent => !isAgentName(agent));
+  if (unknownPreferredAgent) {
+    throw new Error(`Routing uses unknown preferred agent "${unknownPreferredAgent}".`);
+  }
 
   const routing: SourceTask["routing"] = { mode };
 
@@ -155,10 +160,11 @@ function normalizeTask(raw: unknown): SourceTask {
 
   const id = typeof raw.id === "string" ? raw.id.trim() : "";
   const title = typeof raw.title === "string" ? raw.title.trim() : "";
-  const agent =
-    typeof raw.agent === "string"
-      ? (raw.agent.trim() as AgentName)
-      : ("" as AgentName);
+  const rawAgent = typeof raw.agent === "string" ? raw.agent.trim() : "";
+  if (rawAgent && !isAgentName(rawAgent)) {
+    throw new Error(`Task "${id || "unknown"}" uses unknown agent "${rawAgent}".`);
+  }
+  const agent = rawAgent as AgentName;
   const description =
     typeof raw.description === "string" ? raw.description.trim() : "";
 
@@ -186,6 +192,8 @@ function normalizeTask(raw: unknown): SourceTask {
     dependencies: normalizeStringList(raw.dependencies),
     acceptance_criteria: normalizeStringList(raw.acceptance_criteria),
   };
+  const artifactRefs = normalizeStringList(raw.artifact_refs);
+  if (artifactRefs.length) task.artifact_refs = artifactRefs;
 
   const routing = normalizeRouting(raw.routing);
   if (routing) {
@@ -262,11 +270,10 @@ export function validatePlannerPlan(
   validateTaskGraphSemantics({ tasks: plan.tasks });
 
   for (const task of plan.tasks) {
-    if (GATE_AGENTS.includes(task.agent)) {
+    if (NON_IMPLEMENTATION_AGENTS.includes(task.agent)) {
       throw new Error(
         `Task "${task.id}" uses agent "${task.agent}". ` +
-          `Review and QA are quality gates handled by the existing quality gate system ` +
-          `and must not be planned as implementation tasks.`,
+          `Design is a pre-planning phase, while review and QA use the quality gate system; these orchestration phases must not be planned as implementation tasks.`,
       );
     }
   }
@@ -363,6 +370,7 @@ export function buildPlannerPrompt(
   originalRequest: string,
   teamConfig: TeamConfig,
   workflowType: WorkflowType,
+  artifactRefs: string[] = [],
 ): string {
   const agentLines = buildAgentCapabilityLines(teamConfig);
   const knownCapabilities = getKnownCapabilities(teamConfig);
@@ -381,6 +389,8 @@ ${workflowType}
 ## Original User Request (Authoritative, Verbatim)
 
 ${originalRequest}
+
+${artifactRefs.length ? `## Approved Planning Artifacts\n\n${artifactRefs.map(ref => `- ${ref}`).join("\n")}\n\nUse these concise references as authoritative context. Add the relevant path to \"artifact_refs\" on frontend tasks; do not copy the artifact contents into task descriptions.` : ""}
 
 ## Available Agents and Capabilities
 
@@ -410,6 +420,7 @@ ${knownCapabilities.map((capability) => `- ${capability}`).join("\n")}
 14. Do not create tasks that modify workflow state files.
 15. Avoid circular or artificial dependencies.
 16. The supplied workflow type is authoritative, as is the complete original user request. Never replace the request with a derived title or summary. If it is underspecified, make reasonable engineering assumptions and produce an actionable plan consistent with that workflow type; do not ask for clarification.
+17. Never create a uiux-designer task. UI/UX design is invoked selectively by orchestration before this final graph; use an approved artifact reference when one is supplied.
 
 ## Required Output
 
@@ -427,7 +438,8 @@ Respond with ONLY a single JSON object matching exactly this structure and nothi
       "agent": "backend",
       "description": "What the implementing agent must do",
       "dependencies": [],
-      "acceptance_criteria": ["Testable criterion"],
+       "acceptance_criteria": ["Testable criterion"],
+      "artifact_refs": [],
       "routing": {
         "mode": "auto",
         "required_capabilities": ["backend/rest-api"],
@@ -446,7 +458,7 @@ Respond with ONLY a single JSON object matching exactly this structure and nothi
 }
 \`\`\`
 
-All "planning" fields are optional. All other task fields are required except "routing", which may be omitted for fixed-agent work.
+"planning", "routing", and "artifact_refs" are optional. All other task fields are required.
 
 Do not wrap the JSON in explanatory prose. Do not add commentary before or after the JSON.
 `.trim();

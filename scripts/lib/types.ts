@@ -1,11 +1,21 @@
 export type AgentName =
   | "planner"
+  | "uiux-designer"
   | "frontend"
   | "backend"
   | "database"
   | "devops"
   | "reviewer"
   | "qa";
+
+export const AGENT_NAMES = [
+  "planner", "uiux-designer", "frontend", "backend", "database", "devops",
+  "reviewer", "qa",
+] as const satisfies readonly AgentName[];
+
+export function isAgentName(value: unknown): value is AgentName {
+  return typeof value === "string" && (AGENT_NAMES as readonly string[]).includes(value);
+}
 
 export type TaskStatus =
   | "pending"
@@ -58,6 +68,8 @@ export type SourceTask = {
   description: string;
   dependencies: string[];
   acceptance_criteria: string[];
+  /** Small, portable references to planning artifacts needed by this task. */
+  artifact_refs?: string[];
   routing?: CapabilityRouting;
   planning?: TaskPlanningMetadata;
 };
@@ -122,7 +134,10 @@ export type HistoryEventName =
   | "task_lease_expired"
   | "provider_retry_scheduled"
   | "provider_failure"
-  | "provider_recovered";
+  | "provider_recovered"
+  | "visual_qa_completed"
+  | "visual_qa_skipped"
+  | "visual_qa_fixes_created";
 
 export type HistoryEvent = {
   timestamp: string;

@@ -99,33 +99,13 @@ tasks:
       - Validation works
       - API errors are displayed correctly
 
-  - id: REVIEW-001
-    title: Review implementation
-    agent: reviewer
-    description: Review all implementation changes.
-    dependencies:
-      - API-001
-      - UI-001
-    acceptance_criteria:
-      - No critical issues
-      - Architecture is acceptable
-      - Security concerns are resolved
-
-  - id: QA-001
-    title: Validate feature
-    agent: qa
-    description: Execute automated and functional validation.
-    dependencies:
-      - REVIEW-001
-    acceptance_criteria:
-      - Tests pass
-      - Build passes
-      - No blocking regressions
 ````
 
 The actual task graph must be based on the repository and feature.
 
 Do not blindly copy this example.
+
+Visual QA, Reviewer, and QA are orchestration gates. Never include `uiux-designer`, `reviewer`, or `qa` as planned implementation tasks in the task graph.
 
 ---
 

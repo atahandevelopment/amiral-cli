@@ -30,6 +30,7 @@ Plan → Decompose → Schedule → Execute → Integrate → Review → Fix →
 - [Kurulum](#installation)
 - [Başlatma](#initialization)
 - [Yapılandırma ve proje kökünü bulma](#configuration)
+- [İsteğe bağlı UI/UX tasarımı ve Browser Visual QA](#ui-workflow)
 - [Komut referansı](#commands)
 - [Kalıcılık ve sürdürme](#persistence)
 - [Sorun giderme](#troubleshooting)
@@ -352,6 +353,56 @@ Temel ilkeler:
 - İlgisiz değişiklikleri koruyun, yıkıcı Git eylemlerinden kaçının ve kimlik bilgilerini asla açığa çıkarmayın.
 
 Birlikte verilen `team.yaml`; ajanları, yetenekleri, sağlayıcı yönlendirmesi/kapasitesini, kiralamaları, yeniden denemeleri, Git saklama ayarlarını ve `feature`, `bugfix`, `refactor` iş akışlarını tanımlar. Zamanlayıcı görev bağımlılıklarını ve gerekli yetenekleri kullanır; etkin paralellik `execution.max_parallel_agents` ve sağlayıcı eşzamanlılığıyla sınırlıdır (birlikte verilen yapılandırmada her ikisinin varsayılanı da 1'dir).
+
+<a id="ui-workflow"></a>
+## İsteğe bağlı UI/UX tasarımı ve Browser Visual QA
+
+UI desteği açıkça etkinleştirilir; atlandığında veya kapatıldığında normal workflow korunur. Birlikte verilen `team.yaml`, `ui.enabled: false` ayarına sahip devre dışı bir `ui` bölümü içerir. Çevrimiçi planlamada Amiral, yalnızca `ui.enabled` true olduğunda ve istek ihtiyatlı biçimde önemli bir kullanıcı arayüzü işi (örneğin düzen, responsive davranış, etkileşim, motion veya accessibility) olarak sınıflandırıldığında salt okunur `uiux-designer` ajanını Planner'dan önce çağırır. Yalnızca metin değişiklikleri, görsel açıdan önemsiz ve yalnızca backend istekleri bunu etkinleştirmez. İçe aktarılan planlar (`--plan-file`) bu tasarım aşamasını çalıştırmaz.
+
+`uiux-designer`, ayrıntılı yön gerektiğinde paketlenmiş `ui-ux-pro` skill'ini seçerek yükleyebilir; backend/metin işi için veya onaylı bir specification UI'ı zaten belirliyorsa yüklemez. Skill yalnızca ilgili referansları okur, deponun component ve token'larını tercih eder ve uygulama yerine gerekçelendirme üretir. Designer'ın kendisi dosya yazmaz: orkestrasyon JSON'u doğrular; `plans/<plan-id>/uiux-design-spec.json` ile `uiux-design-diagnostics.json` dosyalarını kalıcılaştırır. Specification; `version`, `name`, `summary` ve `path`, `description`, gözlemlenebilir `acceptance_criteria` içeren bir veya daha fazla route kaydı içerir; frontend task'ları specification'ı artifact referansı olarak alır. Designer çıktısı en çok üç doğrulama denemesine sahiptir.
+
+Entegrasyondan sonra Browser Visual QA, Review ve QA'dan **önce** çalışır. Sonuçlar yapılandırılmış bir `outcome_code` içerir. `critical`/`high` bulgular düzeltme task'ları oluşturur; yineleme bütçesi sonunda çözülmezlerse workflow bloklanır ve Review/QA sessizce devam etmez.
+
+```yaml
+ui:
+  enabled: true
+  designer: uiux-designer
+  skill: ui-ux-pro
+  # style_preset: product-archetype-name
+  animation:
+    enabled: false
+    intensity: none
+  allowed_hosts: []
+  routes:
+    include: []
+    exclude: []
+  server:
+    # start_command: npm run dev
+    # ready_url: http://localhost:3000
+    startup_timeout_ms: 60000
+    shutdown_timeout_ms: 10000
+  visual_qa:
+    enabled: false
+    # provider: registered-browser-adapter
+    max_iterations: 2
+    viewports:
+      - { width: 1440, height: 900 }
+      - { width: 1024, height: 768 }
+      - { width: 768, height: 1024 }
+      - { width: 390, height: 844 }
+```
+
+Yukarıdaki alanların tümü isteğe bağlıdır. Normalleştirilmiş kesin varsayılanlar: `enabled: false`, `designer: uiux-designer`, `skill` ve `style_preset` yok, `animation.enabled: false`, `animation.intensity: none`, boş `allowed_hosts`, `routes.include` ve `routes.exclude`, server komutu ve hazır URL'si yok, server timeout'ları 60.000/10.000 ms; Visual QA ise providersız, iki yineleme ve gösterilen dört viewport ile kapalıdır. Boolean alanlar boolean; timeout, boyut ve `max_iterations` pozitif tamsayı; string alanlar boş olmayan string olmalıdır. String dizileri benzersiz, boş olmayan değerler içermelidir. `animation.intensity`; `none`, `subtle`, `moderate` veya `expressive` değeridir. Designer `planner`, `reviewer` veya `qa` olamaz.
+
+`style_preset` isteğe bağlı prompt yönlendirmesidir; theme kurucusu değildir. Bu sürüm preset sunmaz, birini örtük olarak seçmez ve adlandırılmış bir şirketi taklit etmez; mevcut design system ve açık gereksinimler önceliklidir. Benzer şekilde animation ayarları runtime'a animation eklemek yerine tasarım aşamasına motion bütçesi iletir. Paketlenmiş yönlendirme; amaca yönelik feedback (yaklaşık 100–150 ms), standart transition'lar (150–250 ms), daha büyük mekânsal transition'lar (250–400 ms) önerir, 500 ms üzeri motion'dan kaçınır, task'ın bitmesini asla geciktirmez ve reduced-motion tercihlerine uyar.
+
+Kapalı Visual QA, yapılandırılmamış/yüklü olmayan provider veya kullanılamayan tasarım artifact'ı kaydedilip atlanır. Yapılandırılmış startup hatası, eksik `ready_url`, provider runtime hatası ya da bütçesi tükenen kritik/yüksek bulgular workflow'u bloklar.
+
+Browser/server denetimleri özellikle dardır: hazırlık ve navigation yalnızca kimlik bilgisi içermeyen HTTP(S)'e izin verir; loopback host'larına varsayılan olarak izin verilir, ek kesin host adları `allowed_hosts` gerektirir. `start_command`, shell olmadan argümanlara ayrılır ve shell operatörlerini reddeder. Amiral zaten çalışan server'ı sahiplenmeden probe eder; yalnızca kendi başlattığı process'i, zorla sonlandırmadan önce shutdown timeout'unu kullanarak durdurur. Yaygın kimlik bilgileri sınırlı uzunluktaki tanılardan maskelenir. URL, komut, artifact veya izlenen yapılandırmaya gizli bilgi koymayın.
+
+Designer ve Visual QA ek context ve çalışma zamanı tüketir. Core, provider çağrısından önce yapılandırılmış route include/exclude politikasını uygular.
+
+npm paketi `templates/` ve `vendor/skills` içerir. Normal `amiral init`, `uiux-designer` ajanını ve design/Visual-QA schema'larını diğer template'lerle kurar, ardından `vendor/skills/ui-ux-pro` dizinini kopyalar; `--force` kullanılmadıkça mevcut dosyalar korunur. `amiral init --minimal`, paketlenmiş skill'leri bilerek ne okur ne kurar ve isteğe bağlı designer ajanını dışarıda bırakır; buna karşın minimal schema kümesini kurar. Başlatma UI işlemesini etkinleştirmez ve otomatik olarak bir `ui` bölümü eklemez.
 
 ## Global bayraklar ve çıktı
 

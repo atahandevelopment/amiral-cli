@@ -26,7 +26,10 @@ test("packed CLI shims preserve requests through plan and run", { timeout: 120_0
     const paths = packed[0].files.map(file => file.path);
     assert.ok(paths.includes("dist/src/cli/index.js"));
     assert.ok(paths.includes("templates/init/.opencode/agents/lead.md"));
+    assert.ok(paths.includes("templates/init/.opencode/agents/uiux-designer.md"));
+    assert.ok(paths.includes("vendor/skills/ui-ux-pro/SKILL.md"));
     assert.ok(paths.includes("vendor/skills/using-agent-skills/SKILL.md"));
+    for (const readme of ["README.md", "README_TR.md", "README_DE.md", "README_FR.md"]) assert.ok(paths.includes(readme));
     assert.ok(paths.every(path => !path.startsWith("vendor/addy-agent-skills/")));
 
     const install = runNpm(["install", "--ignore-scripts", resolve(space, packed[0].filename)], space);
@@ -44,6 +47,11 @@ test("packed CLI shims preserve requests through plan and run", { timeout: 120_0
       await readFile(resolve(space, "vendor", "skills", "using-agent-skills", "SKILL.md")),
       await readFile(resolve(repoRoot, "vendor", "skills", "using-agent-skills", "SKILL.md")),
     );
+    assert.deepEqual(
+      await readFile(resolve(space, "vendor", "skills", "ui-ux-pro", "SKILL.md")),
+      await readFile(resolve(repoRoot, "vendor", "skills", "ui-ux-pro", "SKILL.md")),
+    );
+    assert.ok((await readFile(resolve(space, ".opencode", "opencode.json"), "utf8")).includes('"vendor/skills"'));
 
     const minimalRoot = resolve(space, "minimal consumer");
     await mkdir(minimalRoot);

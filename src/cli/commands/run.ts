@@ -39,6 +39,8 @@ export function registerRun(program: Command): void {
       process.on("SIGINT", signalHandler); process.on("SIGTERM", signalHandler);
       let planId: string | undefined;
       try {
+        const visualQABootstrap = await import("../../../scripts/lib/visual-qa-bootstrap.js");
+        visualQABootstrap.registerBuiltInVisualQAProviders();
         const create = await import("../../../scripts/lib/workflow-create.js");
         const planning = await import("../../../scripts/lib/planning-service.js");
         let workflowId: string | undefined = opts.workflow;

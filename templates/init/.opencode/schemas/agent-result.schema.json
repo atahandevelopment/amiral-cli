@@ -29,6 +29,7 @@
       "type": "string",
       "enum": [
         "planner",
+        "uiux-designer",
         "frontend",
         "backend",
         "database",
